@@ -1,5 +1,7 @@
 node_modules/
 .github/
+static/
+api/
 .editorconfig
 .eslintignore
 .eslintrc.json

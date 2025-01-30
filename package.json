@@ -1,16 +1,15 @@
 {
-  "name": "npm-template",
-  "version": "1.1.1",
+  "name": "@aegisjsproject/http-server",
+  "version": "1.0.0",
   "description": "A template repo for npm packages",
   "keywords": [],
   "type": "module",
-  "main": "./index.cjs",
-  "module": "./index.js",
-  "unpkg": "./index.min.js",
+  "main": "./server.cjs",
+  "module": "./server.js",
   "exports": {
     ".": {
-      "import": "./index.js",
-      "require": "./index.cjs"
+      "import": "./server.js",
+      "require": "./server.cjs"
     },
     "./*.js": {
       "import": "./*.js",
@@ -34,6 +33,7 @@
   },
   "private": false,
   "scripts": {
+    "start": "node serve.js",
     "test": "npm run lint:js && npm run run:tests",
     "preversion": "npm test && npm run build",
     "prepare": "npm test && npm run build",
@@ -72,7 +72,10 @@
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.0",
     "@shgysk8zer0/eslint-config": "^1.0.3",
-    "@shgysk8zer0/js-utils": "^1.0.2",
-    "@shgysk8zer0/npm-utils": "^1.1.3"
+    "eslint": "^9.19.0",
+    "rollup": "^4.32.0"
+  },
+  "dependencies": {
+    "@shgysk8zer0/polyfills": "^0.4.8"
   }
 }

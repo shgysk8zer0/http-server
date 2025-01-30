@@ -1,7 +1,42 @@
-/* eslint-disable */
 import '@shgysk8zer0/polyfills'; // Adds polyfills for eg `Promise.try()`, `URLPattern`, `URL.parse` and `URL.canParse`, etc... All new APIs in JS.
-// Have to extend `Request` since setting `destination` and `mode` in `RequestInit` throws, but we can use headers
+import { createServer } from 'node:http';
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
+async function _open(url) {
+	if (typeof url === 'string') {
+		return await _open(URL.parse(url));
+	} else if (! (url instanceof URL)) {
+		throw new TypeError('URL must be a string or URL.');
+	} else if (url.protocol === 'http:' || url.protocol === 'https:') {
+		const { exec } = await import('node:child_process');
+		const { promise, resolve, reject } = Promise.withResolvers();
+
+		switch(process.platform) {
+			case 'darwin':
+				exec(`open "${url}"`, reject, resolve);
+				break;
+
+			case 'win32':
+				exec(`start "${url}"`, reject, resolve);
+				break;
+
+			case 'linux':
+				exec(`xdg-open "${url}"`, reject, resolve);
+				break;
+
+			default:
+				reject(new Error(`Unspoorted platform: ${process.platform}.`));
+		}
+
+		return await promise;
+	} else {
+		throw new TypeError(`Invalid URL: ${url.href}`);
+	}
+}
+
+// Have to extend `Request` since setting `destination` and `mode` in `RequestInit` throws, but we can use headers
 export class HTTPRequest extends Request {
 	get cache() {
 		switch(this.headers.get('Cache-Control')) {
@@ -69,7 +104,7 @@ export class HTTPRequest extends Request {
 	 * @return {HTTPRequest}
 	 */
 	static createFromIncomingMessage(req, { signal } = {}) {
-		const body = getBody(req);
+		const body = _getBody(req);
 
 		return new HTTPRequest(URL.parse(req.url, 'http://' + req.headers.host)?.href, {
 			headers: req.headers,
@@ -82,16 +117,80 @@ export class HTTPRequest extends Request {
 	}
 }
 
-function createErrorHandler(resp, controller, logger) {
+export class HTTPError extends Error {
+	#status = 0;
+	#headers;
+
+	constructor(message, status = 500, { headers, cause }) {
+		if (! Number.isSafeInteger(status) && status > 0 && status < 600) {
+			throw new TypeError(`Invalid status: ${status}.`);
+		} {
+			super(message, { cause });
+			this.#status = status;
+
+			if (headers instanceof Headers) {
+				this.#headers = headers;
+			} else {
+				this.#headers = new Headers(headers);
+			}
+		}
+	}
+
+	[Symbol.toStringTag]() {
+		return 'HTTPError';
+	}
+
+	toJSON() {
+		return {
+			name: this.name,
+			message: this.message,
+			status: this.#status,
+			headers: Object.fromEntries(this.#headers),
+		};
+	}
+
+	get name() {
+		return 'HTTPError';
+	}
+
+	get headers() {
+		return this.#headers;
+	}
+
+	get status() {
+		return this.#status;
+	}
+
+	get response() {
+		return Response.json({
+			error: this,
+		}, {
+			status: this.#status,
+			headers: this.#headers,
+		});
+	}
+
+	static async from(resp) {
+		if (! (resp instanceof Response)) {
+			throw new TypeError('Cannot create an HTTPError without a Response.');
+		} else {
+			const { error: { status, headers, message }} = await resp.json();
+
+			return new HTTPError(message, status, { headers });
+		}
+	}
+}
+
+function _createErrorHandler(resp, controller, logger) {
 	return logger instanceof Function
 		? async (err, { status = 500, headers = { 'Content-Type': 'text/plain' }} = {}) => {
 			Promise.try(() => logger(err));
 			controller.abort(err);
-			return sendError(err, resp, { status, headers });
+			return _sendError(err, resp, { status, headers });
 		}
 		: async (err, { status = 500, headers = { 'Content-Type': 'text/plain' }} = {}) => {
 			controller.abort(err);
-			return sendError(err, resp, { status, headers });
+			return _sendError(err, resp, { status, headers });
 		};
 }
 
@@ -130,7 +229,7 @@ export function getContentType(path) {
  * @param {AbortSignal} [options.signal]
  * @returns {ReadableStream|null}
  */
-function getBody(req, { signal: passedSignal } = {}) {
+function _getBody(req, { signal: passedSignal } = {}) {
 	if (typeof req.headers['content-type'] !== 'string' || ['HEAD', 'DELETE', 'GET'].includes(req.method)) {
 		return null;
 	} else {
@@ -166,7 +265,7 @@ function getBody(req, { signal: passedSignal } = {}) {
 	}
 }
 
-async function send(resp, respMessage) {
+async function _send(resp, respMessage) {
 	if (resp instanceof Response) {
 		respMessage.writeHead(resp.status, Object.fromEntries(resp.headers));
 
@@ -179,7 +278,7 @@ async function send(resp, respMessage) {
 		respMessage.end();
 	} else if (typeof resp === 'object') {
 		const { headers = {}, body = null, status = 200 } = resp;
-		await send(new Response(body, {
+		await _send(new Response(body, {
 			status,
 			headers: Array.isArray(headers) ? Object.fromEntries(headers) : headers,
 		}), respMessage);
@@ -188,11 +287,11 @@ async function send(resp, respMessage) {
 	}
 }
 
-async function sendError(err, respMessage, {
+async function _sendError(err, respMessage, {
 	status = 500,
 	headers = { 'Content-Type': 'text/plain' },
 } = {}) {
-	return await send(new Response(err.message, {
+	return await _send(new Response(err.message, {
 		status,
 		headers,
 	}), respMessage);
@@ -210,7 +309,7 @@ export const getFileStream = (path, base = `file://${process.cwd()}/`) => new Re
 			const url = URL.parse(path, base);
 
 			if (! (url instanceof URL) || url.protocol !== 'file:') {
-				throw new Error(`Invalid file path.`);
+				throw new Error('Invalid file path.');
 			} else {
 				const { createReadStream } = await import('node:fs');
 				const fileStream = createReadStream(url.pathname);
@@ -232,7 +331,6 @@ export const getFileStream = (path, base = `file://${process.cwd()}/`) => new Re
  * @param {string} path
  * @param {object} [options]
  * @param {string} [options.base]
- * @param {string} [options.type="application/octet-stream"]
  * @param {string|null} [options.compression=null]
  * @returns {Promise<Response>}
  */
@@ -261,71 +359,105 @@ export async function respondWithFile(path, {
 	}
 }
 
+
+/**
+ * Creates a `file:` URL relative from the `pathname` of a URL, relative to project root.
+ *
+ * @param {string|URL} url The URL to resolve using `pathname`.
+ * @param {string} [root="/"] The root directory, relative to the project root/working directory.
+ * @returns {URL} The resolved file URL (`file:///path/to/project/:root/:pathname`).
+ * @throws {TypeError} If `url` is not a string or URL.
+ */
+export function getFileURL(url, root = '/') {
+	if (typeof url === 'string') {
+		return getFileURL(URL.parse(url), root);
+	} else if (! (url instanceof URL)) {
+		throw new TypeError('`url` must be a string or `URL`.');
+	} else {
+		const base = `file:${process.cwd()}/`;
+
+		const path = './' + [
+			...root.split('/').filter(seg => seg.length !== 0),
+			...url.pathname.split('/').filter(seg => seg.length !== 0),
+		].join('/');
+
+		return new URL(path, base);
+	}
+}
+
+/**
+ *
+ * @param {string} path
+ * @param {object} options
+ * @param {string[]} [options.indexFiles=["index.html","index.html"]]
+ * @returns {Promise<string|null>}
+ */
+async function _resolveStaticPath(path, { indexFiles = ['index.html', 'index.htm'] } = {}) {
+	if (existsSync(path)) {
+		const stats = await stat(path);
+
+		if (stats.isFile()) {
+			return path;
+		} else if (stats.isDirectory()) {
+			// Try each potential index file
+			return indexFiles.map(index => join(path, index)).find(existsSync) ?? null;
+		}
+	} else {
+		return null;
+	}
+}
+
+/**
+ * Starts a development server.
+ *
+ * @param {object} config Configuration options for the server.
+ * @param {string} [config.hostname="localhost"] The hostname to listen on.
+ * @param {string} [config.staticRoot="/"] The path to the directory containing static files.
+ * @param {number} [config.port=8080] The port to listen on.
+ * @param {string} [config.pathname="/"] The URL path to serve the application on.
+ * @param {object} [config.routes={}] A map of URL patterns to route handlers.
+ * @param {Function} [config.logger=console.error] A function to log messages.
+ * @param {boolean} [config.launch=false] Whether to open the application in the browser.
+ * @param {AbortSignal} [config.signal] A signal to abort the server.
+ * @returns {Promise<{server: Server<typeof IncomingMessage, typeof ServerResponse>, url: string, whenServerClosed: Promise<void>}>} An object containing the server instance, the URL it is listening on, and a promise that resolves when the server is closed.
+ */
 export async function serve({
 	hostname = 'localhost',
+	staticRoot = '/',
 	port = 8080,
 	pathname = '/',
 	routes = {},
 	logger = console.error,
+	launch = false,
 	signal: passedSignal,
-	staticPaths = [],
 } = {}) {
+	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
 	const url = new URL(pathname, `http://${hostname}:${port}`).href;
-	const map = new Map(Object.entries(routes).map(([pattern, module]) => [new URLPattern(pattern, url), module]));
-	const [
-		{ createServer },
-		{ stat },
-		{ join },
-		{ existsSync },
-	] = await Promise.all([
-		import('node:http'),
-		import('node:fs/promises'),
-		import('node:path'),
-		import('node:fs'),
-	]);
-
-	async function resolveStaticPath(path, { indexFiles = ['index.html', 'index.htm'] } = {}) {
-		if (existsSync(path)) {
-			const stats = await stat(path);
-
-			if (stats.isFile()) {
-				return path;
-			} else if (stats.isDirectory()) {
-				// Try each potential index file
-				return indexFiles.map(index => join(path, index)).find(existsSync);
-			}
-		}
-	}
+	const ROUTES = new Map(Object.entries(routes).map(([pattern, module]) => [new URLPattern(pattern, url), module]));
 
 	const server = createServer(async function(incomingMessage, serverResponse) {
 		const controller = new AbortController();
-		const errHandler = createErrorHandler(serverResponse, controller, logger);
+		const errHandler = _createErrorHandler(serverResponse, controller, logger);
 
 		try {
 			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
 			controller.signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
 			const req = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal: controller.signal });
 			const url = new URL(req.url);
-			const fileURL = new URL('.' + url.pathname ?? '/', `file://${process.cwd()}/`);
-			const pattern = map.keys().find(pattern => pattern.test(req.url));
+			const fileURL = getFileURL(url, staticRoot);
+			const pattern = ROUTES.keys().find(pattern => pattern.test(req.url));
 			console.info(`${req.method} <${req.url}>`);
 
-			if (staticPaths.some(path => url.pathname.startsWith(path))) {
-				const resolved = await resolveStaticPath(fileURL.pathname);
 
-				if (typeof resolved === 'string') {
-					const resp = await respondWithFile(resolved);
-					await send(resp, serverResponse);
-				} else {
-					await errHandler(new Error(`<${req.url}> not found.`, { status: 404 }));
-				}
-			} else if (pattern instanceof URLPattern) {
-				const moduleSpecifier = map.get(pattern);
+			if (pattern instanceof URLPattern) {
+				const moduleSpecifier = ROUTES.get(pattern);
 				const module = await import(moduleSpecifier).catch(err => err);
 
 				if (module instanceof Error) {
-					await sendError(module, serverResponse);
-				} else if (module.default instanceof Function) {
+					await _sendError(module, serverResponse);
+				} else if (! (module.default instanceof Function)) {
+					await errHandler(new Error(`${moduleSpecifier} is missing a default export.`));
+				} else {
 					const signal = passedSignal instanceof AbortSignal
 						? AbortSignal.any([passedSignal, controller.signal])
 						: controller.signal;
@@ -338,16 +470,23 @@ export async function serve({
 					}).catch(err => err);
 
 					if (resp instanceof Response) {
-						await send(resp, serverResponse);
+						await _send(resp, serverResponse);
 					} else if (resp instanceof URL) {
-						return send(Response.redirect(resp));
+						return _send(Response.redirect(resp));
 					} else if (resp instanceof Error) {
 						await errHandler(resp);
 					} else {
 						await errHandler(new TypeError(`${moduleSpecifier} did not return a response.`));
 					}
+				}
+			} else if (existsSync(fileURL)) {
+				const resolved = await _resolveStaticPath(fileURL.pathname);
+
+				if (typeof resolved === 'string') {
+					const resp = await respondWithFile(resolved);
+					await _send(resp, serverResponse);
 				} else {
-					await errHandler(new Error(`${moduleSpecifier} is missing a default export.`));
+					await errHandler(new Error(`<${req.url}> not found.`, { status: 404 }));
 				}
 			} else {
 				await errHandler(new Error(`${req.url} not found.`), { status: 404 });
@@ -364,47 +503,34 @@ export async function serve({
 	}
 
 	await new Promise(resolve =>  server.once('listening', resolve));
+	server.once('close', resolveClosed);
 
-	return { server, url };
+	// Check if a given signal abouted during server start-up
+	if (passedSignal instanceof AbortSignal && passedSignal.aborted) {
+		server.close();
+
+		throw passedSignal.reason;
+	}
+
+	if (launch) {
+		_open(url).catch(console.error);
+	}
+
+	return Object.freeze({ server, url, whenServerClosed });
 }
 
-// Let's test this server module out...
-const controller = new AbortController();
+/**
+ *
+ * @param {URL|string} url
+ * @param {RequestInit} init
+ */
+export async function mockFetch(url, init) {
+	try {
+		const req = new HTTPRequest(url, init);
+		console.log(req);
+	} catch(err) {
+		console.error(err);
+		return Response.error();
+	}
 
-const { url } = await serve({
-	pathname: '/test/',
-	routes: {
-		'/test/': './home.js',
-		'/tasks': './tasks.js',
-		// '/:path/*': './js/routes/handler.js',
-	},
-	staticPaths: ['/favicon.ico', '/img/', '/js/', '/css/', '/_site/'],
-	signal: controller.signal,
-	port: 8000,
-});
-
-console.info(`Now listening on ${url}`);
-
-// const resp = await fetch(url, {
-// 	method: 'PUT',
-// 	body: getFileStream(import.meta.url).pipeThrough(new CompressionStream('deflate')),
-// 	signal: controller.signal,
-// 	referrer: 'https://example.com',
-// 	mode: 'same-origin',
-// 	referrerPolicy: 'origin',
-// 	priority: 'high',
-// 	duplex: 'half',
-// 	headers: {
-// 		Accept: 'application/json',
-// 		'Content-Encoding': 'deflate',
-// 		'Content-Type': 'application/javascript',
-// 		Priority: 'u=2',
-// 		Cookie: 'foo=bar',
-// 	}
-// });
-// console.log(await resp.json());
-// const resp = await fetch('http://localhost:8000/_site/', { signal: controller.signal });
-
-// console.log(await resp.text());
-// controller.abort('done');
-
+}

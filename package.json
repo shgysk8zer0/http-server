@@ -6,6 +6,9 @@
   "type": "module",
   "main": "./server.cjs",
   "module": "./server.js",
+  "bin": {
+    "http-server": "./cli.js"
+  },
   "exports": {
     ".": {
       "import": "./server.js",
@@ -29,11 +32,11 @@
     }
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "private": false,
   "scripts": {
-    "start": "node serve.js",
+    "start": "node ./cli.js -c ./http.config.js",
     "test": "npm run lint:js && npm run run:tests",
     "preversion": "npm test && npm run build",
     "prepare": "npm test && npm run build",

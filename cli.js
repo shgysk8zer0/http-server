@@ -2,6 +2,8 @@ import { serve } from './server.js';
 
 const args = process.argv.slice(2).map(arg => arg.split('=')).flat();
 
+const importConfig = specifier => import(specifier).then(module => typeof module.default === 'object' ? module.default : module);
+
 /**
  *
  * @param {string|string[]} flag
@@ -23,7 +25,7 @@ function hasArg(flag) {
 	return Array.isArray(flag) ? flag.some(f => args.includes(f)) : args.includes(flag);
 }
 
-const config = hasArg(['-c', '--config']) ? await import(getArg(['-c', '--config'])) : {
+const config = hasArg(['-c', '--config']) ? await importConfig(getArg(['-c', '--config'])) : {
 	hostname: getArg(['-h', '--hostname']),
 	port: parseInt(getArg(['-p', '--port'], '8000')),
 	launch: hasArg(['-l', '--launch']),

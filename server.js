@@ -121,10 +121,10 @@ export class HTTPError extends Error {
 	#status = 0;
 	#headers;
 
-	constructor(message, status = 500, { headers, cause }) {
+	constructor(message, { status = 500, headers, cause } = {}) {
 		if (! Number.isSafeInteger(status) && status > 0 && status < 600) {
 			throw new TypeError(`Invalid status: ${status}.`);
-		} {
+		} else {
 			super(message, { cause });
 			this.#status = status;
 
@@ -174,24 +174,11 @@ export class HTTPError extends Error {
 		if (! (resp instanceof Response)) {
 			throw new TypeError('Cannot create an HTTPError without a Response.');
 		} else {
-			const { error: { status, headers, message }} = await resp.json();
+			const { error: { status, headers, message } = {}} = await resp.json();
 
 			return new HTTPError(message, status, { headers });
 		}
 	}
-}
-
-function _createErrorHandler(resp, controller, logger) {
-	return logger instanceof Function
-		? async (err, { status = 500, headers = { 'Content-Type': 'text/plain' }} = {}) => {
-			Promise.try(() => logger(err));
-			controller.abort(err);
-			return _sendError(err, resp, { status, headers });
-		}
-		: async (err, { status = 500, headers = { 'Content-Type': 'text/plain' }} = {}) => {
-			controller.abort(err);
-			return _sendError(err, resp, { status, headers });
-		};
 }
 
 export function getContentType(path) {
@@ -265,11 +252,20 @@ function _getBody(req, { signal: passedSignal } = {}) {
 	}
 }
 
-async function _send(resp, respMessage) {
+/**
+ *
+ * @param {Response} resp
+ * @param {ServerResponse} respMessage
+ * @param {object} headers
+ */
+async function _send(resp, respMessage, headers = {}) {
 	if (resp instanceof Response) {
-		respMessage.writeHead(resp.status, Object.fromEntries(resp.headers));
 
-		if (resp.body instanceof ReadableStream) {
+		if (! respMessage.headersSent) {
+			respMessage.writeHead(resp.status, { ...Object.fromEntries(resp.headers), ...headers });
+		}
+
+		if (respMessage.writable && resp.body instanceof ReadableStream) {
 			for await (const chunk of resp.body) {
 				respMessage.write(chunk);
 			}
@@ -285,16 +281,6 @@ async function _send(resp, respMessage) {
 	} else {
 		throw new TypeError('Response must be a `Response` or regular object.');
 	}
-}
-
-async function _sendError(err, respMessage, {
-	status = 500,
-	headers = { 'Content-Type': 'text/plain' },
-} = {}) {
-	return await _send(new Response(err.message, {
-		status,
-		headers,
-	}), respMessage);
 }
 
 /**
@@ -416,6 +402,7 @@ async function _resolveStaticPath(path, { indexFiles = ['index.html', 'index.htm
  * @param {number} [config.port=8080] The port to listen on.
  * @param {string} [config.pathname="/"] The URL path to serve the application on.
  * @param {object} [config.routes={}] A map of URL patterns to route handlers.
+ * @param {object} [config.headers] Optional headers to append to responses.
  * @param {Function} [config.logger=console.error] A function to log messages.
  * @param {boolean} [config.launch=false] Whether to open the application in the browser.
  * @param {AbortSignal} [config.signal] A signal to abort the server.
@@ -427,6 +414,7 @@ export async function serve({
 	port = 8080,
 	pathname = '/',
 	routes = {},
+	headers = {},
 	logger = console.error,
 	launch = false,
 	signal: passedSignal,
@@ -437,46 +425,47 @@ export async function serve({
 
 	const server = createServer(async function(incomingMessage, serverResponse) {
 		const controller = new AbortController();
-		const errHandler = _createErrorHandler(serverResponse, controller, logger);
+		const signal = passedSignal instanceof AbortSignal
+			? AbortSignal.any([passedSignal, controller.signal])
+			: controller.signal;
 
 		try {
 			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
-			controller.signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
-			const req = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal: controller.signal });
+
+			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
+			const req = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal });
 			const url = new URL(req.url);
 			const fileURL = getFileURL(url, staticRoot);
 			const pattern = ROUTES.keys().find(pattern => pattern.test(req.url));
 			console.info(`${req.method} <${req.url}>`);
-
 
 			if (pattern instanceof URLPattern) {
 				const moduleSpecifier = ROUTES.get(pattern);
 				const module = await import(moduleSpecifier).catch(err => err);
 
 				if (module instanceof Error) {
-					await _sendError(module, serverResponse);
+					throw module;
 				} else if (! (module.default instanceof Function)) {
-					await errHandler(new Error(`${moduleSpecifier} is missing a default export.`));
+					throw new HTTPError('There was an error handling the request.', {
+						status: 500,
+						cause: new Error(`${moduleSpecifier} is missing a default export.`),
+					});
 				} else {
-					const signal = passedSignal instanceof AbortSignal
-						? AbortSignal.any([passedSignal, controller.signal])
-						: controller.signal;
-
-					const resp = await module.default(req, {
+					const resp = await Promise.try(() => module.default(req, {
 						matches: pattern.exec(req.url),
+						ip: incomingMessage.socket.remoteAddress,
 						pattern,
 						controller,
-						signal,
-					}).catch(err => err);
+					})).catch(err => err);
 
 					if (resp instanceof Response) {
-						await _send(resp, serverResponse);
+						await _send(resp, serverResponse, headers);
 					} else if (resp instanceof URL) {
 						return _send(Response.redirect(resp));
 					} else if (resp instanceof Error) {
-						await errHandler(resp);
+						throw resp;
 					} else {
-						await errHandler(new TypeError(`${moduleSpecifier} did not return a response.`));
+						throw new TypeError(`${moduleSpecifier} did not return a response.`);
 					}
 				}
 			} else if (existsSync(fileURL)) {
@@ -484,15 +473,23 @@ export async function serve({
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);
-					await _send(resp, serverResponse);
+					await _send(resp, serverResponse, headers);
 				} else {
-					await errHandler(new Error(`<${req.url}> not found.`, { status: 404 }));
+					throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
 				}
 			} else {
-				await errHandler(new Error(`${req.url} not found.`), { status: 404 });
+				throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
 			}
 		} catch(err) {
-			await errHandler(err);
+			if (logger instanceof Function) {
+				Promise.try(() => logger(err));
+			}
+
+			if (err instanceof HTTPError) {
+				await _send(err.response, serverResponse, headers);
+			} else {
+				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, headers);
+			}
 		}
 	});
 
@@ -517,20 +514,4 @@ export async function serve({
 	}
 
 	return Object.freeze({ server, url, whenServerClosed });
-}
-
-/**
- *
- * @param {URL|string} url
- * @param {RequestInit} init
- */
-export async function mockFetch(url, init) {
-	try {
-		const req = new HTTPRequest(url, init);
-		console.log(req);
-	} catch(err) {
-		console.error(err);
-		return Response.error();
-	}
-
 }

@@ -2,9 +2,19 @@ export default {
 	staticRoot: '/static/',
 	routes: {
 		'/favicon.svg': '@aegisjsproject/http-server/api/favicon.js',
-		// '/test/': './home.js',
+		'/video': './api/video.js',
 		'/tasks': '@aegisjsproject/http-server/api/tasks.js',
-		// '/:path/*': './js/routes/handler.js',
+		'/echo': '@aegisjsproject/http-server/api/echo.js',
+		'/server': '@aegisjsproject/http-server/api/server.js',
+	},
+	headers: {
+		'Content-Security-Policy': [
+			'default-src \'none\'',
+			'script-src \'self\' https://unpkg.com/@shgysk8zer0/ https://unpkg.com/@aegisjsproject/',
+			'img-src \'self\'',
+			'media-src \'self\'',
+			'connect-src \'self\' http://localhost:*/',
+		].join(';'),
 	},
 	staticPaths: ['/'],
 	port: 8000,

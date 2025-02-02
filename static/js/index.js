@@ -1,8 +1,5 @@
 /* eslint-env browser */
 /* global document */
-import { AttributeTokenList, SetLikeArray } from '../TokenList.js';
-globalThis.AttributeTokenList = AttributeTokenList;
-globalThis.SetLikeArray = SetLikeArray;
 console.log('Works!');
 fetch('/tasks').then(resp => resp.json()).then(console.log).catch(console.error);
 

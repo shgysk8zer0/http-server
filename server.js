@@ -262,6 +262,13 @@ async function _send(resp, respMessage, headers = {}) {
 	if (resp instanceof Response) {
 
 		if (! respMessage.headersSent) {
+			resp.headers.forEach((value, key) => {
+				if (key !== 'set-cookie') {
+					respMessage.setHeader(key, value);
+				}
+			});
+
+			resp.headers.getSetCookie().forEach(cookie => respMessage.appendHeader('Set-Cookie', cookie));
 			respMessage.writeHead(resp.status, { ...Object.fromEntries(resp.headers), ...headers });
 		}
 
@@ -431,7 +438,6 @@ export async function serve({
 
 		try {
 			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
-
 			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
 			const req = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal });
 			const url = new URL(req.url);

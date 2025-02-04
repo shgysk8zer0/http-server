@@ -1,5 +1,5 @@
 {
-  "name": "@aegisjsproject/http-server",
+  "name": "@shgysk8zer0/http-server",
   "version": "1.0.0",
   "description": "A powerful but lightweight node server built using web standards",
   "keywords": [
@@ -16,7 +16,7 @@
   "module": "./http-server.js",
   "bin": {
     "http-server": "./cli.js",
-    "@aegisjsproject/http-server": "./cli.js"
+    "@shgysk8zer0/http-server": "./cli.js"
   },
   "exports": {
     ".": {
@@ -63,7 +63,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AegisJSProject/http-server.git"
+    "url": "git+https://github.com/shgysk8zer0/http-server.git"
   },
   "author": "Chris Zuber <admin@kernvalley.us>",
   "license": "MIT",
@@ -78,9 +78,9 @@
     }
   ],
   "bugs": {
-    "url": "https://github.com/AegisJSProject/http-server/issues"
+    "url": "https://github.com/shgysk8zer0/http-server/issues"
   },
-  "homepage": "https://github.com/AegisJSProject/http-server#readme",
+  "homepage": "https://github.com/shgysk8zer0/http-server#readme",
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.0",
     "@shgysk8zer0/eslint-config": "^1.0.3",

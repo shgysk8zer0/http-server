@@ -1,4 +1,4 @@
-import { serve } from '@aegisjsproject/http-server';
+import { serve } from '@shgyk8zer0/http-server';
 
 export default async (req) => {
 	const { hostname } = new URL(req.url);
@@ -17,7 +17,7 @@ export default async (req) => {
 		pathname: path,
 		signal: controller.signal,
 		routes: {
-			['/' + path]: '@aegisjsproject/http-server/api/echo.js',
+			['/' + path]: '@shgysk8zer0/http-server/api/echo.js',
 		}
 	});
 

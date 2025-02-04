@@ -1,24 +1,24 @@
-# `@aegisjsproject/http-server`
+# `@@shgysk8zer0/http-server`
 
 A powerful but lightweight node server built using web standards
 
-[![CodeQL](https://github.com/AegisJSProject/http-server/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/AegisJSProject/http-server/actions/workflows/codeql-analysis.yml)
-![Node CI](https://github.com/AegisJSProject/http-server/workflows/Node%20CI/badge.svg)
-![Lint Code Base](https://github.com/AegisJSProject/http-server/workflows/Lint%20Code%20Base/badge.svg)
+[![CodeQL](https://github.com/@shgysk8zer0/http-server/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/@shgysk8zer0/http-server/actions/workflows/codeql-analysis.yml)
+![Node CI](https://github.com/@shgysk8zer0/http-server/workflows/Node%20CI/badge.svg)
+![Lint Code Base](https://github.com/@shgysk8zer0/http-server/workflows/Lint%20Code%20Base/badge.svg)
 
-[![GitHub license](https://img.shields.io/github/license/AegisJSProject/http-server.svg)](https://github.com/AegisJSProject/http-server/blob/master/LICENSE)
-[![GitHub last commit](https://img.shields.io/github/last-commit/AegisJSProject/http-server.svg)](https://github.com/AegisJSProject/http-server/commits/master)
-[![GitHub release](https://img.shields.io/github/release/AegisJSProject/http-server?logo=github)](https://github.com/AegisJSProject/http-server/releases)
+[![GitHub license](https://img.shields.io/github/license/@shgysk8zer0/http-server.svg)](https://github.com/@shgysk8zer0/http-server/blob/master/LICENSE)
+[![GitHub last commit](https://img.shields.io/github/last-commit/@shgysk8zer0/http-server.svg)](https://github.com/@shgysk8zer0/http-server/commits/master)
+[![GitHub release](https://img.shields.io/github/release/@shgysk8zer0/http-server?logo=github)](https://github.com/@shgysk8zer0/http-server/releases)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/shgysk8zer0?logo=github)](https://github.com/sponsors/shgysk8zer0)
 
-[![npm](https://img.shields.io/npm/v/@aegisjsproject/http-server)](https://www.npmjs.com/package/@aegisjsproject/http-server)
-![node-current](https://img.shields.io/node/v/@aegisjsproject/http-server)
-![npm bundle size gzipped](https://img.shields.io/bundlephobia/minzip/@aegisjsproject/http-server)
-[![npm](https://img.shields.io/npm/dw/@aegisjsproject/http-server?logo=npm)](https://www.npmjs.com/package/@aegisjsproject/http-server)
+[![npm](https://img.shields.io/npm/v/@@shgysk8zer0/http-server)](https://www.npmjs.com/package/@@shgysk8zer0/http-server)
+![node-current](https://img.shields.io/node/v/@@shgysk8zer0/http-server)
+![npm bundle size gzipped](https://img.shields.io/bundlephobia/minzip/@@shgysk8zer0/http-server)
+[![npm](https://img.shields.io/npm/dw/@@shgysk8zer0/http-server?logo=npm)](https://www.npmjs.com/package/@@shgysk8zer0/http-server)
 
 [![GitHub followers](https://img.shields.io/github/followers/shgysk8zer0.svg?style=social)](https://github.com/shgysk8zer0)
-![GitHub forks](https://img.shields.io/github/forks/AegisJSProject/http-server.svg?style=social)
-![GitHub stars](https://img.shields.io/github/stars/AegisJSProject/http-server.svg?style=social)
+![GitHub forks](https://img.shields.io/github/forks/@shgysk8zer0/http-server.svg?style=social)
+![GitHub stars](https://img.shields.io/github/stars/@shgysk8zer0/http-server.svg?style=social)
 [![Twitter Follow](https://img.shields.io/twitter/follow/shgysk8zer0.svg?style=social)](https://twitter.com/shgysk8zer0)
 
 [![Donate using Liberapay](https://img.shields.io/liberapay/receives/shgysk8zer0.svg?logo=liberapay)](https://liberapay.com/shgysk8zer0/donate "Donate using Liberapay")
@@ -54,22 +54,22 @@ Written in pure ESM and providing a flexible configuration system, this server b
 
 ### Basic Static Server
 ```bash
-npx @aegisjsproject/http-server
+npx @@shgysk8zer0/http-server
 ```
 
 ### Custom Port and Hostname
 ```bash
-npx @aegisjsproject/http-server --port=3000 --hostname=0.0.0.0
+npx @@shgysk8zer0/http-server --port=3000 --hostname=0.0.0.0
 ```
 
 ### Serve Static Files from Directory
 ```bash
-npx @aegisjsproject/http-server --static=./public
+npx @@shgysk8zer0/http-server --static=./public
 ```
 
 ### Using Config File
 ```bash
-npx @aegisjsproject/http-server --config=./http.config.js
+npx @@shgysk8zer0/http-server --config=./http.config.js
 ```
 
 Example `http.config.js`:
@@ -79,8 +79,8 @@ const controller = new AbortController();
 export default {
   staticRoot: '/static/',
   routes: {
-    '/favicon.svg': '@aegisjsproject/http-server/api/favicon.js',
-    '/tasks': '@aegisjsproject/http-server/api/tasks.js',
+    '/favicon.svg': '@@shgysk8zer0/http-server/api/favicon.js',
+    '/tasks': '@@shgysk8zer0/http-server/api/tasks.js',
   },
   staticPaths: ['/'],
   port: 8000,
@@ -93,7 +93,7 @@ export default {
 The server can be imported and configured programmatically:
 
 ```js
-import { serve } from '@aegisjsproject/http-server';
+import { serve } from '@@shgysk8zer0/http-server';
 
 const controller = new AbortController();
 const config = {

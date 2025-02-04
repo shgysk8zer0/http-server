@@ -1,4 +1,4 @@
-import { serve } from '@aegisjsproject/http-server';
+import { serve } from '@shgysk8zer0/http-server';
 import { test, describe } from 'node:test';
 import { deepStrictEqual, ok, strictEqual, fail } from 'node:assert';
 
@@ -8,7 +8,7 @@ describe('Test HTTP server', { concurrency: 5, signal: timeout }, async () => {
 	let port = 8000;
 	const staticRoot = '/static/';
 	const routes = {
-		'/tasks': '@aegisjsproject/http-server/api/tasks.js',
+		'/tasks': '@shgysk8zer0/http-server/api/tasks.js',
 	};
 	const controller = new AbortController();
 

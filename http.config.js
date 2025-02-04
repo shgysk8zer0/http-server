@@ -6,6 +6,7 @@ export default {
 		'/tasks': '@aegisjsproject/http-server/api/tasks.js',
 		'/echo': '@aegisjsproject/http-server/api/echo.js',
 		'/server': '@aegisjsproject/http-server/api/server.js',
+		'/redirect': '@aegisjsproject/http-server/api/redirect.js',
 	},
 	headers: {
 		'Content-Security-Policy': [

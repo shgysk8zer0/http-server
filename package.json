@@ -12,8 +12,8 @@
     "static-routes"
   ],
   "type": "module",
-  "main": "./server.cjs",
-  "module": "./server.js",
+  "main": "./http-server.cjs",
+  "module": "./http-server.js",
   "bin": {
     "http-server": "./cli.js",
     "@aegisjsproject/http-server": "./cli.js"

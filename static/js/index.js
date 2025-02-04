@@ -1,9 +1,8 @@
 /* eslint-env browser */
 /* global document */
-console.log('Works!');
 fetch('/tasks').then(resp => resp.json()).then(console.log).catch(console.error);
 
-fetch('/echo', {
+fetch('/redirect', {
 	method: 'PUT',
 	body: new File(['Hello, World!'], 'hi.txt', { type: 'text/plain' }),
 	priority: 'high',

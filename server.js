@@ -1,8 +1,9 @@
-import '@shgysk8zer0/polyfills'; // Adds polyfills for eg `Promise.try()`, `URLPattern`, `URL.parse` and `URL.canParse`, etc... All new APIs in JS.
 import { createServer } from 'node:http';
-import { stat } from 'node:fs/promises';
-import { join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { HTTPRequest } from './HTTPRequest.js';
+import { RequestCookieMap } from './RequestCookieMap.js';
+import { HTTPError } from './HTTPError.js';
+import { getFileURL, resolveStaticPath, respondWithFile } from './utils.js';
 
 async function _open(url) {
 	if (typeof url === 'string') {
@@ -36,222 +37,6 @@ async function _open(url) {
 	}
 }
 
-// Have to extend `Request` since setting `destination` and `mode` in `RequestInit` throws, but we can use headers
-export class HTTPRequest extends Request {
-	get cache() {
-		switch(this.headers.get('Cache-Control')) {
-			case 'no-store':
-				return 'no-store';
-
-			case 'no-cache':
-				return 'no-cache';
-
-			default:
-				return 'default';
-		}
-
-	}
-	get credentials() {
-		return this.headers.has('Cookie') ? 'include' : 'omit';
-	}
-
-	get destination() {
-		return this.headers.get('Sec-Fetch-Dest') ?? 'empty';
-	}
-
-	get mode() {
-		return this.headers.get('Sec-Fetch-Mode') ?? 'no-cors';
-	}
-
-	get priority() {
-		if (! this.headers.has('Priority')) {
-			return 'auto';
-		} else {
-			const priority = this.headers.get('Priority');
-			const index = priority.indexOf('u=');
-
-			if (index === -1) {
-				return 'auto';
-			} else {
-				// @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Priority
-				switch (parseInt(priority[index + 2])) {
-					case 0:
-					case 1:
-					case 2:
-						return 'high';
-
-					case 3:
-					case 4:
-						return 'auto';
-
-					case 5:
-					case 6:
-					case 7:
-						return 'low';
-
-					default: return 'auto';
-				}
-			}
-		}
-	}
-
-	/**
-	 * Creates a request using node's `IncomingMessage`
-	 *
-	 * @param {IncomingMessage} message
-	 * @param {object} [options]
-	 * @param {AbortSignal} [options.signal]
-	 * @return {HTTPRequest}
-	 */
-	static createFromIncomingMessage(req, { signal } = {}) {
-		const body = _getBody(req);
-
-		return new HTTPRequest(URL.parse(req.url, 'http://' + req.headers.host)?.href, {
-			headers: req.headers,
-			body, // null or a readable stream
-			method: req.method,
-			referrer: typeof req.headers.referer === 'string' && URL.canParse(req.headers.referer) ? req.headers.referer : 'about:client',
-			signal,
-			duplex: body instanceof ReadableStream ? 'half' : undefined,
-		});
-	}
-}
-
-export class HTTPError extends Error {
-	#status = 0;
-	#headers;
-
-	constructor(message, { status = 500, headers, cause } = {}) {
-		if (! Number.isSafeInteger(status) && status > 0 && status < 600) {
-			throw new TypeError(`Invalid status: ${status}.`);
-		} else {
-			super(message, { cause });
-			this.#status = status;
-
-			if (headers instanceof Headers) {
-				this.#headers = headers;
-			} else {
-				this.#headers = new Headers(headers);
-			}
-		}
-	}
-
-	[Symbol.toStringTag]() {
-		return 'HTTPError';
-	}
-
-	toJSON() {
-		return {
-			name: this.name,
-			message: this.message,
-			status: this.#status,
-			headers: Object.fromEntries(this.#headers),
-		};
-	}
-
-	get name() {
-		return 'HTTPError';
-	}
-
-	get headers() {
-		return this.#headers;
-	}
-
-	get status() {
-		return this.#status;
-	}
-
-	get response() {
-		return Response.json({
-			error: this,
-		}, {
-			status: this.#status,
-			headers: this.#headers,
-		});
-	}
-
-	static async from(resp) {
-		if (! (resp instanceof Response)) {
-			throw new TypeError('Cannot create an HTTPError without a Response.');
-		} else {
-			const { error: { status, headers, message } = {}} = await resp.json();
-
-			return new HTTPError(message, status, { headers });
-		}
-	}
-}
-
-export function getContentType(path) {
-	switch(path.toLowerCase().split('.').at(-1)) {
-		case 'html':
-			return 'text/html';
-
-		case 'js':
-			return 'application/javascript';
-
-		case 'css':
-			return 'text/css';
-
-		case 'jpeg':
-			return 'image/jpeg';
-
-		case 'png':
-			return 'image/png';
-
-		case 'svg':
-			return 'image/svg+xml';
-
-		case 'txt':
-			return 'text/plain';
-
-		default:
-			return 'application/octet-stream';
-	}
-}
-
-/**
- *
- * @param {IncomingMessage} req
- * @param {object} [options]
- * @param {AbortSignal} [options.signal]
- * @returns {ReadableStream|null}
- */
-function _getBody(req, { signal: passedSignal } = {}) {
-	if (typeof req.headers['content-type'] !== 'string' || ['HEAD', 'DELETE', 'GET'].includes(req.method)) {
-		return null;
-	} else {
-		const abortCtrl = new AbortController();
-		const signal = passedSignal instanceof AbortSignal
-			? AbortSignal.any([passedSignal, abortCtrl.signal])
-			: abortCtrl.signal;
-
-		const stream = new ReadableStream({
-			start(controller) {
-				const enqueue = controller.enqueue.bind(controller);
-				const close = controller.close.bind(controller);
-
-				req.on('data', enqueue);
-				req.once('end', close);
-
-				signal.addEventListener('abort', ({ target }) => {
-					if (! abortCtrl.signal.aborted) {
-						abortCtrl.abort(target.reason);
-					}
-
-					req.off('data', enqueue);
-					req.off('end', close);
-					controller.error(target.reason);
-					controller.close();
-				});
-			}
-		});
-
-		return typeof req.headers['content-encoding'] === 'string' && ['gzip', 'deflate'].includes(req.headers['content-encoding'])
-			? stream.pipeThrough(new DecompressionStream(req.headers['content-encoding']), { signal })
-			: stream;
-	}
-}
-
 /**
  *
  * @param {Response} resp
@@ -268,8 +53,14 @@ async function _send(resp, respMessage, headers = {}) {
 				}
 			});
 
+			Object.entries(headers).forEach(([name, val]) => {
+				if (! resp.headers.has(name)) {
+					respMessage.setHeader(name, val);
+				}
+			});
+
 			resp.headers.getSetCookie().forEach(cookie => respMessage.appendHeader('Set-Cookie', cookie));
-			respMessage.writeHead(resp.status, { ...Object.fromEntries(resp.headers), ...headers });
+			respMessage.writeHead(resp.status, resp.statusText);
 		}
 
 		if (respMessage.writable && resp.body instanceof ReadableStream) {
@@ -280,123 +71,15 @@ async function _send(resp, respMessage, headers = {}) {
 
 		respMessage.end();
 	} else if (typeof resp === 'object') {
-		const { headers = {}, body = null, status = 200 } = resp;
+		const { headers: respHeaders = {}, body = null, status = 200, statusText } = resp;
+
 		await _send(new Response(body, {
 			status,
-			headers: Array.isArray(headers) ? Object.fromEntries(headers) : headers,
-		}), respMessage);
+			statusText,
+			headers: Array.isArray(respHeaders) ? Object.fromEntries(respHeaders) : respHeaders,
+		}), respMessage, headers);
 	} else {
 		throw new TypeError('Response must be a `Response` or regular object.');
-	}
-}
-
-/**
- *
- * @param {string} path
- * @param {string} base
- * @returns {ReadableStream}
- */
-export const getFileStream = (path, base = `file://${process.cwd()}/`) => new ReadableStream({
-	async start(controller) {
-		try {
-			const url = URL.parse(path, base);
-
-			if (! (url instanceof URL) || url.protocol !== 'file:') {
-				throw new Error('Invalid file path.');
-			} else {
-				const { createReadStream } = await import('node:fs');
-				const fileStream = createReadStream(url.pathname);
-
-				for await (const chunk of fileStream) {
-					controller.enqueue(chunk);
-				}
-			}
-		} catch(err) {
-			controller.error(err);
-		} finally {
-			controller.close();
-		}
-	}
-});
-
-/**
- *
- * @param {string} path
- * @param {object} [options]
- * @param {string} [options.base]
- * @param {string|null} [options.compression=null]
- * @returns {Promise<Response>}
- */
-export async function respondWithFile(path, {
-	base = `file://${process.cwd()}/`,
-	compression = null,
-	...headers
-} = {}) {
-	const stream = getFileStream(path, base);
-
-	if (typeof compression === 'string') {
-		return new Response(stream.pipeThrough(new CompressionStream(compression), {
-			headers: {
-				'Content-Type': getContentType(path),
-				'Content-Encoding': compression,
-				...headers,
-			}
-		}));
-	} else {
-		return new Response(stream, {
-			headers: {
-				'Content-Type': getContentType(path),
-				...headers,
-			},
-		});
-	}
-}
-
-
-/**
- * Creates a `file:` URL relative from the `pathname` of a URL, relative to project root.
- *
- * @param {string|URL} url The URL to resolve using `pathname`.
- * @param {string} [root="/"] The root directory, relative to the project root/working directory.
- * @returns {URL} The resolved file URL (`file:///path/to/project/:root/:pathname`).
- * @throws {TypeError} If `url` is not a string or URL.
- */
-export function getFileURL(url, root = '/') {
-	if (typeof url === 'string') {
-		return getFileURL(URL.parse(url), root);
-	} else if (! (url instanceof URL)) {
-		throw new TypeError('`url` must be a string or `URL`.');
-	} else {
-		const base = `file:${process.cwd()}/`;
-
-		const path = './' + [
-			...root.split('/').filter(seg => seg.length !== 0),
-			...url.pathname.split('/').filter(seg => seg.length !== 0),
-		].join('/');
-
-		return new URL(path, base);
-	}
-}
-
-/**
- *
- * @param {string} path
- * @param {object} options
- * @param {string[]} [options.indexFiles=["index.html","index.html"]]
- * @returns {Promise<string|null>}
- */
-async function _resolveStaticPath(path, { indexFiles = ['index.html', 'index.htm'] } = {}) {
-	if (existsSync(path)) {
-		const stats = await stat(path);
-
-		if (stats.isFile()) {
-			return path;
-		} else if (stats.isDirectory()) {
-			// Try each potential index file
-			return indexFiles.map(index => join(path, index)).find(existsSync) ?? null;
-		}
-	} else {
-		return null;
 	}
 }
 
@@ -460,6 +143,7 @@ export async function serve({
 					const resp = await Promise.try(() => module.default(req, {
 						matches: pattern.exec(req.url),
 						ip: incomingMessage.socket.remoteAddress,
+						cookies: new RequestCookieMap(req),
 						pattern,
 						controller,
 					})).catch(err => err);
@@ -475,7 +159,7 @@ export async function serve({
 					}
 				}
 			} else if (existsSync(fileURL)) {
-				const resolved = await _resolveStaticPath(fileURL.pathname);
+				const resolved = await resolveStaticPath(fileURL.pathname);
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);

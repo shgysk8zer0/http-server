@@ -20,8 +20,8 @@
   },
   "exports": {
     ".": {
-      "import": "./server.js",
-      "require": "./server.cjs"
+      "import": "./http-server.js",
+      "require": "./http-server.cjs"
     },
     "./*.js": {
       "import": "./*.js",

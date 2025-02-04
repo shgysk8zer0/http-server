@@ -1,23 +1,17 @@
 import nodeResolve from '@rollup/plugin-node-resolve';
-const external = [
-	'@shgysk8zer0/polyfills',
-];
-const plugins = [nodeResolve()];
 
-export default [{
-	input: 'http-server.js',
-	plugins,
+const external = (id, src) => typeof src === 'string';
+const plugins = [nodeResolve()];
+const modules = [
+	'cli', 'Cookie', 'http-server', 'HTTPError', 'HTTPRequest', 'server', 'utils',
+];
+
+export default modules.map(module => ({
+	input: `${module}.js`,
 	external,
-	output: [{
-		file: 'http-server.cjs',
-		format: 'cjs',
-	}],
-}, {
-	input: 'cli.js',
 	plugins,
-	external,
-	output: [{
-		file: 'cli.cjs',
+	output: {
+		file: `${module}.cjs`,
 		format: 'cjs',
-	}],
-}];
+	},
+}));

@@ -1,9 +1,13 @@
+#!/usr/bin/env node
 import '@shgysk8zer0/polyfills'; // Adds polyfills for eg `Promise.try()`, `URLPattern`, `URL.parse` and `URL.canParse`, etc... All new APIs in JS.
+import { resolveModulePath } from './utils.js';
 import { serve } from './server.js';
 
 const args = process.argv.slice(2).map(arg => arg.split('=')).flat();
 
-const importConfig = specifier => import(specifier).then(module => typeof module.default === 'object' ? module.default : module);
+const importConfig = specifier => import(resolveModulePath(specifier))
+	.then(module => typeof module.default === 'object' ? module.default : module)
+	.catch(err => ({ signal: AbortSignal.abort(err)}));
 
 /**
  *
@@ -26,17 +30,27 @@ function hasArg(flag) {
 	return Array.isArray(flag) ? flag.some(f => args.includes(f)) : args.includes(flag);
 }
 
-async function start() {
-	const config = hasArg(['-c', '--config']) ? await importConfig(getArg(['-c', '--config'])) : {
+async function getConfig() {
+	return hasArg(['-c', '--config']) ? await importConfig(getArg(['-c', '--config'])) : {
 		hostname: getArg(['-h', '--hostname']),
 		port: parseInt(getArg(['-p', '--port'], '8000')),
 		launch: hasArg(['-l', '--launch']),
 		staticRoot: getArg(['-s', '--static']),
 		signal: hasArg(['-t', '--timeout']) ? AbortSignal.timeout(parseInt(getArg(['-t', '--timeout'], '0')) || 0) : undefined,
 	};
+}
 
-	const { url } = await serve(config);
-	console.log(`Now serving on ${url}`);
+async function start() {
+	const config = await getConfig();
+
+	if (config instanceof Error) {
+		throw config;
+	} else if (config.signal instanceof AbortSignal && config.signal.abort) {
+		throw config.signal.reason;
+	} else {
+		const { url } = await serve(config);
+		console.log(`Now serving on ${url}`);
+	}
 }
 
 start();

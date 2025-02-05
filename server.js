@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { HTTPRequest } from './HTTPRequest.js';
 import { RequestCookieMap } from './RequestCookieMap.js';
 import { HTTPError } from './HTTPError.js';
-import { getFileURL, resolveStaticPath, respondWithFile } from './utils.js';
+import { getFileURL, resolveStaticPath, respondWithFile, resolveModulePath } from './utils.js';
 
 async function _open(url) {
 	if (typeof url === 'string') {
@@ -111,7 +111,7 @@ export async function serve({
 } = {}) {
 	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
 	const url = new URL(pathname, `http://${hostname}:${port}`).href;
-	const ROUTES = new Map(Object.entries(routes).map(([pattern, module]) => [new URLPattern(pattern, url), module]));
+	const ROUTES = new Map(Object.entries(routes).map(([pattern, module]) => [new URLPattern(pattern, url), resolveModulePath(module)]));
 
 	const server = createServer(async function(incomingMessage, serverResponse) {
 		const controller = new AbortController();

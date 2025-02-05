@@ -2,6 +2,14 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
+export function resolveModulePath(path) {
+	if (path[0] === '.' || path[0] === '/') {
+		return `file://${process.cwd()}/${path.replaceAll(/(\.+\/)/g, '')}`;
+	} else {
+		return import.meta.resolve(path);
+	}
+}
+
 export function getContentType(path) {
 	switch(path.toLowerCase().split('.').at(-1)) {
 		case 'html':

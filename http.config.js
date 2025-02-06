@@ -19,5 +19,14 @@ export default {
 	},
 	staticPaths: ['/'],
 	port: 8000,
-	launch: true,
+	open: true,
+	responsePostProcessors: [(resp) => {
+		resp.headers.set('Access-Control-Allow-Origin', '*');
+	}],
+	requestPreprocessors: [async (req, { controller }) => {
+		if (req.headers.has('Referer')) {
+			const { HTTPError } = await import('@shgysk8zer0/http-server/HTTPError.js');
+			controller.abort(new HTTPError('Requests should not have a referrer.'));
+		}
+	}],
 };

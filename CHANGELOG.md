@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [v1.0.2] - 2025-02-06
+
+### Added
+- `requestPreprocessors` option for running parallel functions before request handling, allowing request context modification, validation and early termination
+
+### Changed
+- Update config/flags
+
 ## [v1.0.1] - 2025-02-05
 
 ### Fixed

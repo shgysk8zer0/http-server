@@ -42,9 +42,11 @@ async function _open(url) {
  * @param {Response} resp
  * @param {ServerResponse} respMessage
  * @param {object} headers
+ * @param {Function[]} responsePostProcessors
  */
-async function _send(resp, respMessage, headers = {}) {
+async function _send(resp, respMessage, headers = {}, responsePostProcessors = []) {
 	if (resp instanceof Response) {
+		await Promise.allSettled(responsePostProcessors.map(postProcessor => Promise.try(() => postProcessor(resp))));
 
 		if (! respMessage.headersSent) {
 			resp.headers.forEach((value, key) => {
@@ -79,7 +81,7 @@ async function _send(resp, respMessage, headers = {}) {
 			headers: Array.isArray(respHeaders) ? Object.fromEntries(respHeaders) : respHeaders,
 		}), respMessage, headers);
 	} else {
-		throw new TypeError('Response must be a `Response` or regular object.');
+		await _send(new HTTPError('Invalid response.'), respMessage, headers, responsePostProcessors);
 	}
 }
 
@@ -94,7 +96,9 @@ async function _send(resp, respMessage, headers = {}) {
  * @param {object} [config.routes={}] A map of URL patterns to route handlers.
  * @param {object} [config.headers] Optional headers to append to responses.
  * @param {Function} [config.logger=console.error] A function to log messages.
- * @param {boolean} [config.launch=false] Whether to open the application in the browser.
+ * @param {boolean} [config.open=false] Whether to open the application in the browser.
+ * @param {Function[]} [config.requestPreprocessors] Functions run before request handling, capable of modifying context, logging, validating, or aborting requests.
+ * @param {Function[]} [config.responsePostProcessors] Functions to modify a response after being created but before being sent.
  * @param {AbortSignal} [config.signal] A signal to abort the server.
  * @returns {Promise<{server: Server<typeof IncomingMessage, typeof ServerResponse>, url: string, whenServerClosed: Promise<void>}>} An object containing the server instance, the URL it is listening on, and a promise that resolves when the server is closed.
  */
@@ -106,7 +110,9 @@ export async function serve({
 	routes = {},
 	headers = {},
 	logger = console.error,
-	launch = false,
+	open = false,
+	requestPreprocessors = [],
+	responsePostProcessors = [],
 	signal: passedSignal,
 } = {}) {
 	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
@@ -126,9 +132,28 @@ export async function serve({
 			const url = new URL(req.url);
 			const fileURL = getFileURL(url, staticRoot);
 			const pattern = ROUTES.keys().find(pattern => pattern.test(req.url));
+			const cookies = new RequestCookieMap(req);
+			const context = Object.freeze({
+				url,
+				matches: pattern instanceof URLPattern ? pattern.exec(req.url) : null,
+				cookies, ip: incomingMessage.socket.remoteAddress,
+				controller,
+				signal: controller.signal,
+			});
+
 			console.info(`${req.method} <${req.url}>`);
 
-			if (pattern instanceof URLPattern) {
+			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(req, context)))
+				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
+
+			if (hookErrs.length === 1) {
+				throw hookErrs[0];
+			} else if (hookErrs.length !== 0) {
+				throw new AggregateError(hookErrs);
+			} else if (controller.signal.aborted) {
+				// Controller would be aborted if any of the pre-hooks aborted it.
+				throw controller.signal.reason;
+			} else if (pattern instanceof URLPattern) {
 				const moduleSpecifier = ROUTES.get(pattern);
 				const module = await import(moduleSpecifier).catch(err => err);
 
@@ -140,18 +165,12 @@ export async function serve({
 						cause: new Error(`${moduleSpecifier} is missing a default export.`),
 					});
 				} else {
-					const resp = await Promise.try(() => module.default(req, {
-						matches: pattern.exec(req.url),
-						ip: incomingMessage.socket.remoteAddress,
-						cookies: new RequestCookieMap(req),
-						pattern,
-						controller,
-					})).catch(err => err);
+					const resp = await Promise.try(() => module.default(req, context)).catch(err => err);
 
 					if (resp instanceof Response) {
-						await _send(resp, serverResponse, headers);
+						await _send(resp, serverResponse, headers, responsePostProcessors);
 					} else if (resp instanceof URL) {
-						return _send(Response.redirect(resp));
+						return _send(Response.redirect(resp), serverResponse, {}, responsePostProcessors);
 					} else if (resp instanceof Error) {
 						throw resp;
 					} else {
@@ -163,7 +182,7 @@ export async function serve({
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);
-					await _send(resp, serverResponse, headers);
+					await _send(resp, serverResponse, headers, responsePostProcessors);
 				} else {
 					throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
 				}
@@ -176,9 +195,9 @@ export async function serve({
 			}
 
 			if (err instanceof HTTPError) {
-				await _send(err.response, serverResponse, headers);
+				await _send(err.response, serverResponse, headers, responsePostProcessors);
 			} else {
-				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, headers);
+				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, headers, responsePostProcessors);
 			}
 		}
 	});
@@ -199,7 +218,7 @@ export async function serve({
 		throw passedSignal.reason;
 	}
 
-	if (launch) {
+	if (open) {
 		_open(url).catch(console.error);
 	}
 

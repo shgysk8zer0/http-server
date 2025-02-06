@@ -41,12 +41,15 @@ async function _open(url) {
  *
  * @param {Response} resp
  * @param {ServerResponse} respMessage
- * @param {object} headers
- * @param {Function[]} responsePostProcessors
+ * @param {object} details
+ * @param {object} [details.headers]
+ * @param {Function[]} [details.responsePostprocessors]
+ * @param {object} [details.context]
+ * @param {Request} [details.request]
  */
-async function _send(resp, respMessage, headers = {}, responsePostProcessors = []) {
+async function _send(resp, respMessage, { headers = {}, responsePostprocessors = [], context = {}, request } = {}) {
 	if (resp instanceof Response) {
-		await Promise.allSettled(responsePostProcessors.map(postProcessor => Promise.try(() => postProcessor(resp))));
+		await Promise.allSettled(responsePostprocessors.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context }))));
 
 		if (! respMessage.headersSent) {
 			resp.headers.forEach((value, key) => {
@@ -79,9 +82,9 @@ async function _send(resp, respMessage, headers = {}, responsePostProcessors = [
 			status,
 			statusText,
 			headers: Array.isArray(respHeaders) ? Object.fromEntries(respHeaders) : respHeaders,
-		}), respMessage, headers);
+		}), respMessage, { headers, responsePostprocessors, context, request });
 	} else {
-		await _send(new HTTPError('Invalid response.'), respMessage, headers, responsePostProcessors);
+		await _send(new HTTPError('Invalid response.'), respMessage, { headers, responsePostprocessors, context, request });
 	}
 }
 
@@ -112,7 +115,7 @@ export async function serve({
 	logger = console.error,
 	open = false,
 	requestPreprocessors = [],
-	responsePostProcessors = [],
+	responsePostprocessors = [],
 	signal: passedSignal,
 } = {}) {
 	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
@@ -125,25 +128,27 @@ export async function serve({
 			? AbortSignal.any([passedSignal, controller.signal])
 			: controller.signal;
 
+		const request = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal });
+		const url = new URL(request.url);
+		const fileURL = getFileURL(url, staticRoot);
+		const pattern = ROUTES.keys().find(pattern => pattern.test(request.url));
+		const cookies = new RequestCookieMap(request);
+
+		const context = Object.freeze({
+			url,
+			matches: pattern instanceof URLPattern ? pattern.exec(request.url) : null,
+			cookies, ip: incomingMessage.socket.remoteAddress,
+			controller,
+			signal: controller.signal,
+		});
+
 		try {
 			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
 			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
-			const req = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal });
-			const url = new URL(req.url);
-			const fileURL = getFileURL(url, staticRoot);
-			const pattern = ROUTES.keys().find(pattern => pattern.test(req.url));
-			const cookies = new RequestCookieMap(req);
-			const context = Object.freeze({
-				url,
-				matches: pattern instanceof URLPattern ? pattern.exec(req.url) : null,
-				cookies, ip: incomingMessage.socket.remoteAddress,
-				controller,
-				signal: controller.signal,
-			});
 
-			console.info(`${req.method} <${req.url}>`);
+			console.info(`${request.method} <${request.url}>`);
 
-			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(req, context)))
+			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(request, context)))
 				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
 
 			if (hookErrs.length === 1) {
@@ -165,12 +170,12 @@ export async function serve({
 						cause: new Error(`${moduleSpecifier} is missing a default export.`),
 					});
 				} else {
-					const resp = await Promise.try(() => module.default(req, context)).catch(err => err);
+					const resp = await Promise.try(() => module.default(request, context)).catch(err => err);
 
 					if (resp instanceof Response) {
-						await _send(resp, serverResponse, headers, responsePostProcessors);
+						await _send(resp, serverResponse, { headers, responsePostProcessors: responsePostprocessors, request, context });
 					} else if (resp instanceof URL) {
-						return _send(Response.redirect(resp), serverResponse, {}, responsePostProcessors);
+						return _send(Response.redirect(resp), serverResponse, { responsePostProcessors: responsePostprocessors, request, context });
 					} else if (resp instanceof Error) {
 						throw resp;
 					} else {
@@ -182,12 +187,12 @@ export async function serve({
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);
-					await _send(resp, serverResponse, headers, responsePostProcessors);
+					await _send(resp, serverResponse, { headers, responsePostProcessors: responsePostprocessors, context, request });
 				} else {
-					throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
+					throw new HTTPError(`<${request.url}> not found.`, { status: 404 });
 				}
 			} else {
-				throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
+				throw new HTTPError(`<${request.url}> not found.`, { status: 404 });
 			}
 		} catch(err) {
 			if (logger instanceof Function) {
@@ -195,9 +200,9 @@ export async function serve({
 			}
 
 			if (err instanceof HTTPError) {
-				await _send(err.response, serverResponse, headers, responsePostProcessors);
+				await _send(err.response, serverResponse, { headers, responsePostProcessors: responsePostprocessors, request, context });
 			} else {
-				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, headers, responsePostProcessors);
+				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, { headers, responsePostProcessors: responsePostprocessors, context });
 			}
 		}
 	});

@@ -42,25 +42,21 @@ async function _open(url) {
  * @param {Response} resp
  * @param {ServerResponse} respMessage
  * @param {object} details
- * @param {object} [details.headers]
  * @param {Function[]} [details.responsePostprocessors]
  * @param {object} [details.context]
  * @param {Request} [details.request]
  */
-async function _send(resp, respMessage, { headers = {}, responsePostprocessors = [], context = {}, request } = {}) {
+async function _send(resp, respMessage, { responsePostprocessors = [], context = {}, request } = {}) {
 	if (resp instanceof Response) {
-		await Promise.allSettled(responsePostprocessors.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context }))));
+		// Skip handling responses from `Response.redirect()`, which are immutable
+		if (!(resp.status > 299 && resp.status < 309 && resp.headers.has('Location'))) {
+			await Promise.allSettled(responsePostprocessors.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context }))));
+		}
 
 		if (! respMessage.headersSent) {
 			resp.headers.forEach((value, key) => {
 				if (key !== 'set-cookie') {
 					respMessage.setHeader(key, value);
-				}
-			});
-
-			Object.entries(headers).forEach(([name, val]) => {
-				if (! resp.headers.has(name)) {
-					respMessage.setHeader(name, val);
 				}
 			});
 
@@ -82,9 +78,9 @@ async function _send(resp, respMessage, { headers = {}, responsePostprocessors =
 			status,
 			statusText,
 			headers: Array.isArray(respHeaders) ? Object.fromEntries(respHeaders) : respHeaders,
-		}), respMessage, { headers, responsePostprocessors, context, request });
+		}), respMessage, { responsePostprocessors, context, request });
 	} else {
-		await _send(new HTTPError('Invalid response.'), respMessage, { headers, responsePostprocessors, context, request });
+		await _send(new HTTPError('Invalid response.'), respMessage, { responsePostprocessors, context, request });
 	}
 }
 
@@ -97,7 +93,6 @@ async function _send(resp, respMessage, { headers = {}, responsePostprocessors =
  * @param {number} [config.port=8080] The port to listen on.
  * @param {string} [config.pathname="/"] The URL path to serve the application on.
  * @param {object} [config.routes={}] A map of URL patterns to route handlers.
- * @param {object} [config.headers] Optional headers to append to responses.
  * @param {Function} [config.logger=console.error] A function to log messages.
  * @param {boolean} [config.open=false] Whether to open the application in the browser.
  * @param {Function[]} [config.requestPreprocessors] Functions run before request handling, capable of modifying context, logging, validating, or aborting requests.
@@ -111,7 +106,6 @@ export async function serve({
 	port = 8080,
 	pathname = '/',
 	routes = {},
-	headers = {},
 	logger = console.error,
 	open = false,
 	requestPreprocessors = [],
@@ -146,8 +140,6 @@ export async function serve({
 			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
 			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
 
-			console.info(`${request.method} <${request.url}>`);
-
 			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(request, context)))
 				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
 
@@ -173,9 +165,9 @@ export async function serve({
 					const resp = await Promise.try(() => module.default(request, context)).catch(err => err);
 
 					if (resp instanceof Response) {
-						await _send(resp, serverResponse, { headers, responsePostProcessors: responsePostprocessors, request, context });
+						await _send(resp, serverResponse, { responsePostprocessors, request, context });
 					} else if (resp instanceof URL) {
-						return _send(Response.redirect(resp), serverResponse, { responsePostProcessors: responsePostprocessors, request, context });
+						return _send(Response.redirect(resp), serverResponse, { responsePostprocessors, request, context });
 					} else if (resp instanceof Error) {
 						throw resp;
 					} else {
@@ -187,7 +179,7 @@ export async function serve({
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);
-					await _send(resp, serverResponse, { headers, responsePostProcessors: responsePostprocessors, context, request });
+					await _send(resp, serverResponse, { responsePostprocessors, context, request });
 				} else {
 					throw new HTTPError(`<${request.url}> not found.`, { status: 404 });
 				}
@@ -200,9 +192,9 @@ export async function serve({
 			}
 
 			if (err instanceof HTTPError) {
-				await _send(err.response, serverResponse, { headers, responsePostProcessors: responsePostprocessors, request, context });
+				await _send(err.response, serverResponse, { responsePostprocessors, request, context });
 			} else {
-				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, { headers, responsePostProcessors: responsePostprocessors, context });
+				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, { responsePostprocessors, context });
 			}
 		}
 	});

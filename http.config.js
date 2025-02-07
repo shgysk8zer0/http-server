@@ -1,3 +1,7 @@
+import { useRateLimit } from '@shgysk8zer0/http-server/rate-limit.js';
+import { useCsp } from '@shgysk8zer0/http-server/csp.js';
+import { useCors } from '@shgysk8zer0/http-server/cors.js';
+
 export default {
 	staticRoot: '/static/',
 	routes: {
@@ -8,25 +12,20 @@ export default {
 		'/server': '@shgysk8zer0/http-server/api/server.js',
 		'/redirect': '@shgysk8zer0/http-server/api/redirect.js',
 	},
-	headers: {
-		'Content-Security-Policy': [
-			'default-src \'none\'',
-			'script-src \'self\' https://unpkg.com/@shgysk8zer0/ https://unpkg.com/@shgysk8zer0/',
-			'img-src \'self\'',
-			'media-src \'self\'',
-			'connect-src \'self\' http://localhost:*/',
-		].join(';'),
-	},
 	staticPaths: ['/'],
 	port: 8000,
 	open: true,
-	responsePostProcessors: [(resp) => {
-		resp.headers.set('Access-Control-Allow-Origin', '*');
-	}],
-	requestPreprocessors: [async (req, { controller }) => {
-		if (req.headers.has('Referer')) {
-			const { HTTPError } = await import('@shgysk8zer0/http-server/HTTPError.js');
-			controller.abort(new HTTPError('Requests should not have a referrer.'));
-		}
-	}],
+	responsePostprocessors: [
+		useCors({ allowCredentials: true }),
+		useCsp({
+			'default-src': '\'none\'',
+			'script-src': ['\'self\'', 'https://unpkg.com/@shgysk8zer0/', 'https://unpkg.com/@shgysk8zer0/'],
+			'img-src': '\'self\'',
+			'media-src': '\'self\'',
+			'connect-src': ['\'self\'', 'http://localhost:*/'],
+		}),
+	],
+	requestPreprocessors: [
+		useRateLimit({ timeout: 60_000, maxRequests: 20 }),
+	],
 };

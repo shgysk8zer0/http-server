@@ -5,6 +5,8 @@ import { RequestCookieMap } from './RequestCookieMap.js';
 import { HTTPError } from './HTTPError.js';
 import { getFileURL, resolveStaticPath, respondWithFile, resolveModulePath } from './utils.js';
 
+const _noop = () => null;
+
 async function _open(url) {
 	if (typeof url === 'string') {
 		return await _open(URL.parse(url));
@@ -47,7 +49,9 @@ async function _open(url) {
  * @param {Request} [details.request]
  */
 async function _send(resp, respMessage, { responsePostprocessors = [], context = {}, request } = {}) {
-	if (resp instanceof Response) {
+	if (context.signal.aborted) {
+		respMessage.destroy(context.signal.reason);
+	} else if (resp instanceof Response) {
 		// Skip handling responses from `Response.redirect()`, which are immutable
 		if (!(resp.status > 299 && resp.status < 309 && resp.headers.has('Location'))) {
 			await Promise.allSettled(responsePostprocessors.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context }))));
@@ -61,16 +65,49 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 			});
 
 			resp.headers.getSetCookie().forEach(cookie => respMessage.appendHeader('Set-Cookie', cookie));
-			respMessage.writeHead(resp.status, resp.statusText);
+			respMessage.writeHead(resp.status === 0 ? 500 : resp.status, resp.statusText);
 		}
 
-		if (respMessage.writable && resp.body instanceof ReadableStream) {
-			for await (const chunk of resp.body) {
-				respMessage.write(chunk);
+		if (context.signal.aborted) {
+			respMessage.destroy(context.signal.reason);
+		} else if (respMessage.writable && resp.body instanceof ReadableStream) {
+			const reader = resp.body.getReader();
+			const cancel = reason => {
+				if (resp.body.locked) {
+					reader.closed.then(() => {
+						resp.body.cancel(reason).catch(_noop);
+					}).catch(_noop);
+
+					reader.releaseLock();
+				} else {
+					resp.body.cancel(reason).catch(_noop);
+				}
+			};
+
+			try {
+				const signal = context.signal;
+				signal.addEventListener('abort', ({ target }) => cancel(target.reason), { once: true });
+
+				while (! signal.aborted && resp.body.locked) {
+					const { done, value } = await reader.read();
+
+					if (done) {
+						reader.releaseLock();
+						respMessage.end();
+						resp.body.cancel('Done').catch(_noop);
+						break;
+					} else {
+						respMessage.write(value);
+					}
+				}
+			} catch(err) {
+				respMessage.destroy(err);
+				cancel(err);
 			}
+		} else {
+			respMessage.end();
 		}
 
-		respMessage.end();
 	} else if (typeof resp === 'object') {
 		const { headers: respHeaders = {}, body = null, status = 200, statusText } = resp;
 
@@ -127,6 +164,26 @@ export async function serve({
 		const fileURL = getFileURL(url, staticRoot);
 		const pattern = ROUTES.keys().find(pattern => pattern.test(request.url));
 		const cookies = new RequestCookieMap(request);
+		const { resolve: resolveRequest, reject: rejectRequest, promise } = Promise.withResolvers();
+		let settled = false;
+
+		const resolve = result => {
+			if (! settled) {
+				resolveRequest(result);
+				settled = true;
+			}
+		};
+
+		const reject = reason => {
+			if (! settled) {
+				rejectRequest(reason);
+				settled = true;
+
+				if (! controller.signal.aborted) {
+					controller.abort(reason);
+				}
+			}
+		};
 
 		const context = Object.freeze({
 			url,
@@ -134,69 +191,78 @@ export async function serve({
 			cookies, ip: incomingMessage.socket.remoteAddress,
 			controller,
 			signal: controller.signal,
+			resolve,
+			reject,
 		});
 
 		try {
-			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
+			incomingMessage.socket.once('close', () => controller.abort('Socket closed'));
 			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
 
 			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(request, context)))
 				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
 
 			if (hookErrs.length === 1) {
-				throw hookErrs[0];
+				reject(hookErrs[0]);
 			} else if (hookErrs.length !== 0) {
-				throw new AggregateError(hookErrs);
+				reject(new AggregateError(hookErrs));
 			} else if (controller.signal.aborted) {
 				// Controller would be aborted if any of the pre-hooks aborted it.
-				throw controller.signal.reason;
-			} else if (pattern instanceof URLPattern) {
+				reject(controller.signal.reason);
+			} else if (! settled && pattern instanceof URLPattern) {
 				const moduleSpecifier = ROUTES.get(pattern);
 				const module = await import(moduleSpecifier).catch(err => err);
 
 				if (module instanceof Error) {
-					throw module;
+					reject(module);
 				} else if (! (module.default instanceof Function)) {
-					throw new HTTPError('There was an error handling the request.', {
+					reject(HTTPError('There was an error handling the request.', {
 						status: 500,
 						cause: new Error(`${moduleSpecifier} is missing a default export.`),
-					});
+					}));
 				} else {
 					const resp = await Promise.try(() => module.default(request, context)).catch(err => err);
 
 					if (resp instanceof Response) {
-						await _send(resp, serverResponse, { responsePostprocessors, request, context });
+						resolve(resp);
 					} else if (resp instanceof URL) {
-						return _send(Response.redirect(resp), serverResponse, { responsePostprocessors, request, context });
+						resolve(Response.redirect(resp));
 					} else if (resp instanceof Error) {
-						throw resp;
+						reject(resp);
 					} else {
-						throw new TypeError(`${moduleSpecifier} did not return a response.`);
+						reject(new TypeError(`${moduleSpecifier} did not return a response.`));
 					}
 				}
-			} else if (existsSync(fileURL)) {
+			} else if (! settled && existsSync(fileURL)) {
 				const resolved = await resolveStaticPath(fileURL.pathname);
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);
-					await _send(resp, serverResponse, { responsePostprocessors, context, request });
+
+					resolve(resp);
 				} else {
-					throw new HTTPError(`<${request.url}> not found.`, { status: 404 });
+					reject(new HTTPError(`<${request.url}> not found.`, { status: 404 }));
 				}
-			} else {
-				throw new HTTPError(`<${request.url}> not found.`, { status: 404 });
+			} else if (! settled) {
+				reject(new HTTPError(`<${request.url}> not found.`, { status: 404 }));
 			}
 		} catch(err) {
-			if (logger instanceof Function) {
-				Promise.try(() => logger(err));
-			}
-
-			if (err instanceof HTTPError) {
-				await _send(err.response, serverResponse, { responsePostprocessors, request, context });
-			} else {
-				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, { responsePostprocessors, context });
-			}
+			reject(err);
 		}
+
+		await promise
+			.then(resp =>  _send(resp, serverResponse, { responsePostprocessors, request, context }))
+			.catch(async err => {
+				if (logger instanceof Function) {
+					Promise.try(() => logger(err));
+				}
+
+				if (err instanceof HTTPError) {
+					await _send(err.response, serverResponse, { responsePostprocessors, request, context });
+				} else {
+					await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }).response, serverResponse, { responsePostprocessors, context });
+				}
+			});
 	});
 
 	server.listen(port, hostname);
@@ -208,7 +274,7 @@ export async function serve({
 	await new Promise(resolve =>  server.once('listening', resolve));
 	server.once('close', resolveClosed);
 
-	// Check if a given signal abouted during server start-up
+	// Check if a given signal aborted during server start-up
 	if (passedSignal instanceof AbortSignal && passedSignal.aborted) {
 		server.close();
 

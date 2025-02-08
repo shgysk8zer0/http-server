@@ -10,6 +10,7 @@ export default async function(req, { ip, cookies }) {
 	const headers = new Headers();
 	headers.append('X-Foo', 'bar');
 	headers.append('X-Foo', 'bazz');
+	headers.append('uuid', crypto.randomUUID());
 
 	headers.append('Set-Cookie', new Cookie({
 		name: 'client-ip',

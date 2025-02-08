@@ -1,4 +1,4 @@
-export function useCsp(policy = {
+export function useCSP(policy = {
 	'default-src': ['\'self\''],
 }) {
 	const policyStr = Object.entries(policy).map(([name, values]) => {

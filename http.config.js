@@ -1,7 +1,8 @@
 import { useRateLimit } from '@shgysk8zer0/http-server/rate-limit.js';
-import { useCsp } from '@shgysk8zer0/http-server/csp.js';
-import { useCors } from '@shgysk8zer0/http-server/cors.js';
-import { checkCacheItem, setCacheItem } from './cache.js';
+import { useCSP } from '@shgysk8zer0/http-server/csp.js';
+import { useCORS } from '@shgysk8zer0/http-server/cors.js';
+import { checkCacheItem, setCacheItem } from '@shgysk8zer0/http-server/cache.js';
+import { useRequestId } from './req-id.js';
 
 export default {
 	staticRoot: '/static/',
@@ -19,8 +20,8 @@ export default {
 	port: 8000,
 	open: true,
 	responsePostprocessors: [
-		useCors({ allowCredentials: true }),
-		useCsp({
+		useCORS({ allowCredentials: true }),
+		useCSP({
 			'default-src': '\'none\'',
 			'script-src': ['\'self\'', 'https://unpkg.com/@shgysk8zer0/', 'https://unpkg.com/@shgysk8zer0/'],
 			'img-src': '\'self\'',
@@ -31,6 +32,7 @@ export default {
 	],
 	requestPreprocessors: [
 		useRateLimit({ timeout: 60_000, maxRequests: 100 }),
+		useRequestId,
 		checkCacheItem,
 	],
 };

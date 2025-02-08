@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v1.0.2] - 2025-02-06
+## [v1.0.2] - 2025-02-08
 
 ### Added
-- `requestPreprocessors` option for running parallel functions before request handling, allowing request context modification, validation and early termination
+- `requestPreprocessors` option for running functions before request handling, allowing request context modification, validation and early termination
+- `responsePostprocessors` to eg add CORS headers, etc
 
 ### Changed
 - Update config/flags

@@ -49,8 +49,11 @@ async function _open(url) {
  * @param {Request} [details.request]
  */
 async function _send(resp, respMessage, { responsePostprocessors = [], context = {}, request } = {}) {
-	if (context.signal.aborted) {
-		respMessage.destroy(context.signal.reason);
+	if (context.signal.aborted && resp.ok) {
+		const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
+		respMessage.writeHead(408);
+		respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+		respMessage.end();
 	} else if (resp instanceof Response) {
 		// Skip handling responses from `Response.redirect()`, which are immutable
 		if (!(resp.status > 299 && resp.status < 309 && resp.headers.has('Location'))) {
@@ -68,8 +71,11 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 			respMessage.writeHead(resp.status === 0 ? 500 : resp.status, resp.statusText);
 		}
 
-		if (context.signal.aborted) {
-			respMessage.destroy(context.signal.reason);
+		if (context.signal.aborted && resp.ok) {
+			const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
+			respMessage.writeHead(408);
+			respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+			respMessage.end();
 		} else if (respMessage.writable && resp.body instanceof ReadableStream) {
 			const reader = resp.body.getReader();
 			const cancel = reason => {
@@ -178,10 +184,6 @@ export async function serve({
 			if (! settled) {
 				rejectRequest(reason);
 				settled = true;
-
-				if (! controller.signal.aborted) {
-					controller.abort(reason);
-				}
 			}
 		};
 

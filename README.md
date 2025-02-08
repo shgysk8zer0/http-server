@@ -1,4 +1,4 @@
-# `@@shgysk8zer0/http-server`
+# `@shgysk8zer0/http-server`
 
 A powerful but lightweight node server built using web standards
 
@@ -11,10 +11,10 @@ A powerful but lightweight node server built using web standards
 [![GitHub release](https://img.shields.io/github/release/@shgysk8zer0/http-server?logo=github)](https://github.com/@shgysk8zer0/http-server/releases)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/shgysk8zer0?logo=github)](https://github.com/sponsors/shgysk8zer0)
 
-[![npm](https://img.shields.io/npm/v/@@shgysk8zer0/http-server)](https://www.npmjs.com/package/@@shgysk8zer0/http-server)
-![node-current](https://img.shields.io/node/v/@@shgysk8zer0/http-server)
-![npm bundle size gzipped](https://img.shields.io/bundlephobia/minzip/@@shgysk8zer0/http-server)
-[![npm](https://img.shields.io/npm/dw/@@shgysk8zer0/http-server?logo=npm)](https://www.npmjs.com/package/@@shgysk8zer0/http-server)
+[![npm](https://img.shields.io/npm/v/@shgysk8zer0/http-server)](https://www.npmjs.com/package/@shgysk8zer0/http-server)
+![node-current](https://img.shields.io/node/v/@shgysk8zer0/http-server)
+![npm bundle size gzipped](https://img.shields.io/bundlephobia/minzip/@shgysk8zer0/http-server)
+[![npm](https://img.shields.io/npm/dw/@shgysk8zer0/http-server?logo=npm)](https://www.npmjs.com/package/@shgysk8zer0/http-server)
 
 [![GitHub followers](https://img.shields.io/github/followers/shgysk8zer0.svg?style=social)](https://github.com/shgysk8zer0)
 ![GitHub forks](https://img.shields.io/github/forks/@shgysk8zer0/http-server.svg?style=social)
@@ -39,37 +39,38 @@ A lightweight, modern Node.js HTTP server built entirely around Web Standards. C
 
 Written in pure ESM and providing a flexible configuration system, this server brings the power and familiarity of Web APIs to your Node.js backend. Whether serving static files, creating a dev server, or building a full API, you'll work with the same standards-based interfaces you already know from frontend development.
 
-# CLI Arguments
+## CLI Arguments
 
 | Flag | Alias | Default | Description |
 |------|--------|---------|-------------|
 | `--hostname` | `-h` | `localhost` | The hostname to serve on |
 | `--port` | `-p` | `8000` | The port number to listen on |
+| `--path` | `-a` | `8000` | The path relative to project root to use for the default URL |
 | `--static` | `-s` | `/` | Root directory for static files |
-| `--launch` | `-l` | `false` | Open in default browser when server starts |
+| `--open` | `-o` | `false` | Open in default browser when server starts |
 | `--timeout` | `-t` | `undefined` | Server timeout in milliseconds |
 | `--config` | `-c` | `undefined` | Path to config file |
 
-# Usage Examples
+## Usage Examples
 
 ### Basic Static Server
 ```bash
-npx @@shgysk8zer0/http-server
+npx @shgysk8zer0/http-server
 ```
 
 ### Custom Port and Hostname
 ```bash
-npx @@shgysk8zer0/http-server --port=3000 --hostname=0.0.0.0
+npx @shgysk8zer0/http-server --port=3000 --hostname=0.0.0.0
 ```
 
 ### Serve Static Files from Directory
 ```bash
-npx @@shgysk8zer0/http-server --static=./public
+npx @shgysk8zer0/http-server --static=./public
 ```
 
 ### Using Config File
 ```bash
-npx @@shgysk8zer0/http-server --config=./http.config.js
+npx @shgysk8zer0/http-server --config=./http.config.js
 ```
 
 Example `http.config.js`:
@@ -79,13 +80,13 @@ const controller = new AbortController();
 export default {
   staticRoot: '/static/',
   routes: {
-    '/favicon.svg': '@@shgysk8zer0/http-server/api/favicon.js',
-    '/tasks': '@@shgysk8zer0/http-server/api/tasks.js',
+    '/favicon.svg': '@shgysk8zer0/http-server/api/favicon.js',
+    '/tasks': '@shgysk8zer0/http-server/api/tasks.js',
   },
   staticPaths: ['/'],
   port: 8000,
   signal: controller.signal,
-  launch: true,
+  open: true,
 };
 ```
 
@@ -93,7 +94,7 @@ export default {
 The server can be imported and configured programmatically:
 
 ```js
-import { serve } from '@@shgysk8zer0/http-server';
+import { serve } from '@shgysk8zer0/http-server';
 
 const controller = new AbortController();
 const config = {
@@ -105,7 +106,7 @@ const config = {
    '/api/tasks/:taskId': './routes/tasks.js',
    '/posts/:year(20\\d{2})/:month(0?\\d|[0-2])/:day(0?[1-9]|[12]\\d|3[01])/:post([a-z0-9\-]+[a-z0-9])': '/js/routes/posts.js',
  },
- launch: true,
+ open: true,
  signal: controller.signal,
 };
 

@@ -5,6 +5,8 @@ import { RequestCookieMap } from './RequestCookieMap.js';
 import { HTTPError } from './HTTPError.js';
 import { getFileURL, resolveStaticPath, respondWithFile, resolveModulePath } from './utils.js';
 
+const _noop = () => null;
+
 async function _open(url) {
 	if (typeof url === 'string') {
 		return await _open(URL.parse(url));
@@ -41,10 +43,30 @@ async function _open(url) {
  *
  * @param {Response} resp
  * @param {ServerResponse} respMessage
- * @param {object} headers
+ * @param {object} details
+ * @param {Function[]} [details.responsePostprocessors]
+ * @param {object} [details.context]
+ * @param {Request} [details.request]
  */
-async function _send(resp, respMessage, headers = {}) {
-	if (resp instanceof Response) {
+async function _send(resp, respMessage, { responsePostprocessors = [], context = {}, request } = {}) {
+	if (context.signal.aborted) {
+		if (! respMessage.headersSent) {
+			respMessage.setHeader('Content-Type', 'application/json');
+			respMessage.writeHead(408);
+
+		}
+
+		if (respMessage.writable) {
+			const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
+			respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+		}
+
+		respMessage.end();
+	} else if (resp instanceof Response) {
+		// Skip handling responses from `Response.redirect()`, which are immutable
+		if (!(resp.status > 299 && resp.status < 309 && resp.headers.has('Location'))) {
+			await Promise.allSettled(responsePostprocessors.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context }))));
+		}
 
 		if (! respMessage.headersSent) {
 			resp.headers.forEach((value, key) => {
@@ -53,23 +75,60 @@ async function _send(resp, respMessage, headers = {}) {
 				}
 			});
 
-			Object.entries(headers).forEach(([name, val]) => {
-				if (! resp.headers.has(name)) {
-					respMessage.setHeader(name, val);
-				}
-			});
-
 			resp.headers.getSetCookie().forEach(cookie => respMessage.appendHeader('Set-Cookie', cookie));
-			respMessage.writeHead(resp.status, resp.statusText);
+			respMessage.writeHead(resp.status === 0 ? 500 : resp.status, resp.statusText);
 		}
 
-		if (respMessage.writable && resp.body instanceof ReadableStream) {
-			for await (const chunk of resp.body) {
-				respMessage.write(chunk);
+		if (context.signal.aborted) {
+			if (! respMessage.headersSent) {
+				respMessage.setHeader('Content-Type', 'application/json');
+				respMessage.writeHead(408);
 			}
+
+			if (respMessage.writable) {
+				const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
+				respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+			}
+
+			respMessage.end();
+		} else if (respMessage.writable && resp.body instanceof ReadableStream) {
+			const reader = resp.body.getReader();
+			const cancel = reason => {
+				if (resp.body.locked) {
+					reader.closed.then(() => {
+						resp.body.cancel(reason).catch(_noop);
+					}).catch(_noop);
+
+					reader.releaseLock();
+				} else {
+					resp.body.cancel(reason).catch(_noop);
+				}
+			};
+
+			try {
+				const signal = context.signal;
+				signal.addEventListener('abort', ({ target }) => cancel(target.reason), { once: true });
+
+				while (! signal.aborted && resp.body.locked) {
+					const { done, value } = await reader.read();
+
+					if (done) {
+						reader.releaseLock();
+						respMessage.end();
+						resp.body.cancel('Done').catch(_noop);
+						break;
+					} else {
+						respMessage.write(value);
+					}
+				}
+			} catch(err) {
+				respMessage.destroy(err);
+				cancel(err);
+			}
+		} else {
+			respMessage.end();
 		}
 
-		respMessage.end();
 	} else if (typeof resp === 'object') {
 		const { headers: respHeaders = {}, body = null, status = 200, statusText } = resp;
 
@@ -77,9 +136,9 @@ async function _send(resp, respMessage, headers = {}) {
 			status,
 			statusText,
 			headers: Array.isArray(respHeaders) ? Object.fromEntries(respHeaders) : respHeaders,
-		}), respMessage, headers);
+		}), respMessage, { responsePostprocessors, context, request });
 	} else {
-		throw new TypeError('Response must be a `Response` or regular object.');
+		await _send(new HTTPError('Invalid response.'), respMessage, { responsePostprocessors, context, request });
 	}
 }
 
@@ -92,9 +151,10 @@ async function _send(resp, respMessage, headers = {}) {
  * @param {number} [config.port=8080] The port to listen on.
  * @param {string} [config.pathname="/"] The URL path to serve the application on.
  * @param {object} [config.routes={}] A map of URL patterns to route handlers.
- * @param {object} [config.headers] Optional headers to append to responses.
  * @param {Function} [config.logger=console.error] A function to log messages.
- * @param {boolean} [config.launch=false] Whether to open the application in the browser.
+ * @param {boolean} [config.open=false] Whether to open the application in the browser.
+ * @param {Function[]} [config.requestPreprocessors] Functions run before request handling, capable of modifying context, logging, validating, or aborting requests.
+ * @param {Function[]} [config.responsePostProcessors] Functions to modify a response after being created but before being sent.
  * @param {AbortSignal} [config.signal] A signal to abort the server.
  * @returns {Promise<{server: Server<typeof IncomingMessage, typeof ServerResponse>, url: string, whenServerClosed: Promise<void>}>} An object containing the server instance, the URL it is listening on, and a promise that resolves when the server is closed.
  */
@@ -104,9 +164,10 @@ export async function serve({
 	port = 8080,
 	pathname = '/',
 	routes = {},
-	headers = {},
 	logger = console.error,
-	launch = false,
+	open = false,
+	requestPreprocessors = [],
+	responsePostprocessors = [],
 	signal: passedSignal,
 } = {}) {
 	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
@@ -119,68 +180,106 @@ export async function serve({
 			? AbortSignal.any([passedSignal, controller.signal])
 			: controller.signal;
 
-		try {
-			incomingMessage.once('close', () => setTimeout(() => controller.abort(incomingMessage.errored), 100));
-			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
-			const req = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal });
-			const url = new URL(req.url);
-			const fileURL = getFileURL(url, staticRoot);
-			const pattern = ROUTES.keys().find(pattern => pattern.test(req.url));
-			console.info(`${req.method} <${req.url}>`);
+		const request = HTTPRequest.createFromIncomingMessage(incomingMessage, { signal });
+		const url = new URL(request.url);
+		const fileURL = getFileURL(url, staticRoot);
+		const pattern = ROUTES.keys().find(pattern => pattern.test(request.url));
+		const cookies = new RequestCookieMap(request);
+		const { resolve: resolveRequest, reject: rejectRequest, promise } = Promise.withResolvers();
+		let settled = false;
 
-			if (pattern instanceof URLPattern) {
+		const resolve = result => {
+			if (! settled) {
+				resolveRequest(result);
+				settled = true;
+			}
+		};
+
+		const reject = reason => {
+			if (! settled) {
+				rejectRequest(reason);
+				settled = true;
+			}
+		};
+
+		const context = Object.freeze({
+			url,
+			matches: pattern instanceof URLPattern ? pattern.exec(request.url) : null,
+			cookies, ip: incomingMessage.socket.remoteAddress,
+			controller,
+			signal: controller.signal,
+			resolve,
+			reject,
+		});
+
+		try {
+			incomingMessage.socket.once('close', () => controller.abort('Socket closed'));
+			signal.addEventListener('abort', () => incomingMessage.removeAllListeners(), { once: true });
+
+			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(request, context)))
+				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
+
+			if (hookErrs.length === 1) {
+				reject(hookErrs[0]);
+			} else if (hookErrs.length !== 0) {
+				reject(new AggregateError(hookErrs));
+			} else if (controller.signal.aborted) {
+				// Controller would be aborted if any of the pre-hooks aborted it.
+				reject(controller.signal.reason);
+			} else if (! settled && pattern instanceof URLPattern) {
 				const moduleSpecifier = ROUTES.get(pattern);
 				const module = await import(moduleSpecifier).catch(err => err);
 
 				if (module instanceof Error) {
-					throw module;
+					reject(module);
 				} else if (! (module.default instanceof Function)) {
-					throw new HTTPError('There was an error handling the request.', {
+					reject(HTTPError('There was an error handling the request.', {
 						status: 500,
 						cause: new Error(`${moduleSpecifier} is missing a default export.`),
-					});
+					}));
 				} else {
-					const resp = await Promise.try(() => module.default(req, {
-						matches: pattern.exec(req.url),
-						ip: incomingMessage.socket.remoteAddress,
-						cookies: new RequestCookieMap(req),
-						pattern,
-						controller,
-					})).catch(err => err);
+					const resp = await Promise.try(() => module.default(request, context)).catch(err => err);
 
 					if (resp instanceof Response) {
-						await _send(resp, serverResponse, headers);
+						resolve(resp);
 					} else if (resp instanceof URL) {
-						return _send(Response.redirect(resp));
+						resolve(Response.redirect(resp));
 					} else if (resp instanceof Error) {
-						throw resp;
+						reject(resp);
 					} else {
-						throw new TypeError(`${moduleSpecifier} did not return a response.`);
+						reject(new TypeError(`${moduleSpecifier} did not return a response.`));
 					}
 				}
-			} else if (existsSync(fileURL)) {
+			} else if (! settled && existsSync(fileURL)) {
 				const resolved = await resolveStaticPath(fileURL.pathname);
 
 				if (typeof resolved === 'string') {
 					const resp = await respondWithFile(resolved);
-					await _send(resp, serverResponse, headers);
+
+					resolve(resp);
 				} else {
-					throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
+					reject(new HTTPError(`<${request.url}> not found.`, { status: 404 }));
 				}
-			} else {
-				throw new HTTPError(`<${req.url}> not found.`, { status: 404 });
+			} else if (! settled) {
+				reject(new HTTPError(`<${request.url}> not found.`, { status: 404 }));
 			}
 		} catch(err) {
-			if (logger instanceof Function) {
-				Promise.try(() => logger(err));
-			}
-
-			if (err instanceof HTTPError) {
-				await _send(err.response, serverResponse, headers);
-			} else {
-				await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }), serverResponse, headers);
-			}
+			reject(err);
 		}
+
+		await promise
+			.then(resp =>  _send(resp, serverResponse, { responsePostprocessors, request, context }))
+			.catch(async err => {
+				if (logger instanceof Function) {
+					Promise.try(() => logger(err));
+				}
+
+				if (err instanceof HTTPError) {
+					await _send(err.response, serverResponse, { responsePostprocessors, request, context });
+				} else {
+					await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }).response, serverResponse, { responsePostprocessors, context });
+				}
+			});
 	});
 
 	server.listen(port, hostname);
@@ -192,14 +291,14 @@ export async function serve({
 	await new Promise(resolve =>  server.once('listening', resolve));
 	server.once('close', resolveClosed);
 
-	// Check if a given signal abouted during server start-up
+	// Check if a given signal aborted during server start-up
 	if (passedSignal instanceof AbortSignal && passedSignal.aborted) {
 		server.close();
 
 		throw passedSignal.reason;
 	}
 
-	if (launch) {
+	if (open) {
 		_open(url).catch(console.error);
 	}
 

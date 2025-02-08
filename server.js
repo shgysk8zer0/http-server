@@ -49,10 +49,18 @@ async function _open(url) {
  * @param {Request} [details.request]
  */
 async function _send(resp, respMessage, { responsePostprocessors = [], context = {}, request } = {}) {
-	if (context.signal.aborted && resp.ok) {
-		const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
-		respMessage.writeHead(408);
-		respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+	if (context.signal.aborted) {
+		if (! respMessage.headersSent) {
+			respMessage.setHeader('Content-Type', 'application/json');
+			respMessage.writeHead(408);
+
+		}
+
+		if (respMessage.writable) {
+			const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
+			respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+		}
+
 		respMessage.end();
 	} else if (resp instanceof Response) {
 		// Skip handling responses from `Response.redirect()`, which are immutable
@@ -71,10 +79,17 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 			respMessage.writeHead(resp.status === 0 ? 500 : resp.status, resp.statusText);
 		}
 
-		if (context.signal.aborted && resp.ok) {
-			const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
-			respMessage.writeHead(408);
-			respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+		if (context.signal.aborted) {
+			if (! respMessage.headersSent) {
+				respMessage.setHeader('Content-Type', 'application/json');
+				respMessage.writeHead(408);
+			}
+
+			if (respMessage.writable) {
+				const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
+				respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+			}
+
 			respMessage.end();
 		} else if (respMessage.writable && resp.body instanceof ReadableStream) {
 			const reader = resp.body.getReader();

@@ -123,4 +123,29 @@ describe('Test HTTP server', { concurrency: 5, signal: timeout }, async () => {
 			fail(err);
 		}
 	});
+
+	test('Verify that server does not crash if signal aborts.', { signal: timeout }, async () => {
+		try {
+			const { url, server } = await serve({
+				port: port++,
+				signal: controller.signal,
+				staticRoot,
+				logger: null,
+				routes,
+				requestPreprocessors: [
+					(req, { controller }) => {
+						controller.abort('Just testing...');
+					}
+				]
+			});
+
+			const resp = await fetch(url, { signal: controller.signal });
+			strictEqual(resp.status, 408, 'Aborted requests should have a 4xx status code.');
+			strictEqual(resp.headers.get('Content-Type'), 'application/json', 'Aborted requests should should respond with an error as JSON.');
+			server.close();
+		} catch(err) {
+			controller.abort(err);
+			fail(err);
+		}
+	});
 });

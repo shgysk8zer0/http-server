@@ -26,7 +26,6 @@ export class HTTPError extends Error {
 			name: this.name,
 			message: this.message,
 			status: this.#status,
-			headers: Object.fromEntries(this.#headers),
 		};
 	}
 

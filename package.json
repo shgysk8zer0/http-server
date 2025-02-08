@@ -1,6 +1,6 @@
 {
   "name": "@shgysk8zer0/http-server",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A powerful but lightweight node server built using web standards",
   "keywords": [
     "server",

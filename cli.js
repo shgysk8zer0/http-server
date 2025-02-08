@@ -34,10 +34,11 @@ async function getConfig() {
 	return hasArg(['-c', '--config']) ? await importConfig(getArg(['-c', '--config'])) : {
 		hostname: getArg(['-h', '--hostname']),
 		port: parseInt(getArg(['-p', '--port'], '8000')),
-		path: getArg(['-a', '--path'], '/'),
+		pathname: getArg(['-a', '--path'], '/'),
 		open: hasArg(['-o', '--open']),
-		staticRoot: getArg(['-s', '--static']),
+		staticRoot: getArg(['-s', '--static'], '/'),
 		signal: hasArg(['-t', '--timeout']) ? AbortSignal.timeout(parseInt(getArg(['-t', '--timeout'], '0')) || 0) : undefined,
+		logger: hasArg(['-d', '--debug']) ? console.error : null,
 	};
 }
 

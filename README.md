@@ -45,11 +45,12 @@ Written in pure ESM and providing a flexible configuration system, this server b
 |------|--------|---------|-------------|
 | `--hostname` | `-h` | `localhost` | The hostname to serve on |
 | `--port` | `-p` | `8000` | The port number to listen on |
-| `--path` | `-a` | `8000` | The path relative to project root to use for the default URL |
+| `--path` | `-a` | `/` | The path relative to project root to use for the default URL |
 | `--static` | `-s` | `/` | Root directory for static files |
 | `--open` | `-o` | `false` | Open in default browser when server starts |
 | `--timeout` | `-t` | `undefined` | Server timeout in milliseconds |
 | `--config` | `-c` | `undefined` | Path to config file |
+| `--debugger` | `-d` | `false` | Enables logging of errors via `console.error` |
 
 ## Usage Examples
 

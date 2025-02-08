@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.3] - 2025-02-08
+
+### Added
+- Add `-l` and `--logger` CLI flags to enable `console.error` logging
+
+### Fixed
+- Fix incompatibility between `pathname` in CLI & `serve()`
+- Fix bad documentation of CLI
+
 ## [v1.0.2] - 2025-02-08
 
 ### Added

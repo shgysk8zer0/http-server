@@ -13,6 +13,10 @@ export function useCORS({ allowCredentials = false } = {}) {
 			} else {
 				response.headers.set('Access-Control-Allow-Origin', '*');
 			}
+
+			if (response.headers.has('Allow') && ! response.headers.has('Access-Control-Allow-Methods')) {
+				response.headers.set('Access-Control-Allow-Methods', response.headers.get('Allow'));
+			}
 		}
 	};
 }

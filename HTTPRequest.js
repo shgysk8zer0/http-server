@@ -1,3 +1,4 @@
+import { HTTPError } from './HTTPError.js';
 
 /**
  *
@@ -6,39 +7,45 @@
  * @param {AbortSignal} [options.signal]
  * @returns {ReadableStream|null}
  */
-function _getBody(req, { signal: passedSignal } = {}) {
+function _getBody(req, { signal } = {}) {
 	if (typeof req.headers['content-type'] !== 'string' || ['HEAD', 'DELETE', 'GET'].includes(req.method)) {
 		return null;
 	} else {
-		const abortCtrl = new AbortController();
-		const signal = passedSignal instanceof AbortSignal
-			? AbortSignal.any([passedSignal, abortCtrl.signal])
-			: abortCtrl.signal;
 
 		const stream = new ReadableStream({
 			start(controller) {
+				const abortCtrl = new AbortController();
 				const enqueue = controller.enqueue.bind(controller);
-				const close = controller.close.bind(controller);
+				const close = () => {
+					controller.close();
+					abortCtrl.abort();
+				};
 
 				req.on('data', enqueue);
 				req.once('end', close);
 
-				signal.addEventListener('abort', ({ target }) => {
-					if (! abortCtrl.signal.aborted) {
-						abortCtrl.abort(target.reason);
+				if (signal instanceof AbortSignal) {
+					if (signal.aborted) {
+						controller.abort(signal.reason);
+					} else {
+						signal.addEventListener('abort', ({ target }) => {
+							req.off('data', enqueue);
+							req.off('end', close);
+							controller.error(target.reason);
+						}, { once: true, controller: abortCtrl });
 					}
+				}
 
-					req.off('data', enqueue);
-					req.off('end', close);
-					controller.error(target.reason);
-					controller.close();
-				});
 			}
 		});
 
-		return typeof req.headers['content-encoding'] === 'string' && ['gzip', 'deflate'].includes(req.headers['content-encoding'])
-			? stream.pipeThrough(new DecompressionStream(req.headers['content-encoding']), { signal })
-			: stream;
+		if (typeof req.headers['content-encoding'] !== 'string') {
+			return stream;
+		} else if (['gzip', 'deflate'].includes(req.headers['content-encoding'])) {
+			return stream.pipeThrough(new DecompressionStream(req.headers['content-encoding']), { signal });
+		} else {
+			throw new HTTPError(`Unsupported Content-Encoding: ${req.headers['content-encoding']}.`, { status: 400 });
+		}
 	}
 }
 
@@ -110,7 +117,7 @@ export class HTTPRequest extends Request {
 	 * @return {HTTPRequest}
 	 */
 	static createFromIncomingMessage(req, { signal } = {}) {
-		const body = _getBody(req);
+		const body = _getBody(req, { signal });
 
 		return new HTTPRequest(URL.parse(req.url, 'http://' + req.headers.host)?.href, {
 			headers: req.headers,

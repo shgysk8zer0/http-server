@@ -7,6 +7,13 @@ import { getFileURL, resolveStaticPath, respondWithFile, resolveModulePath } fro
 
 const _noop = () => null;
 
+const _isImmutableResponse = resp => resp.status > 299 && resp.status < 309 && resp.headers.has('Location');
+
+const _isTransformStream = (result) =>
+	result instanceof TransformStream
+	|| result instanceof CompressionStream
+	|| (typeof result === 'object' && result.readable instanceof ReadableStream && result.writable instanceof WritableStream);
+
 async function _open(url) {
 	if (typeof url === 'string') {
 		return await _open(URL.parse(url));
@@ -25,12 +32,8 @@ async function _open(url) {
 				exec(`start "${url}"`, reject, resolve);
 				break;
 
-			case 'linux':
-				exec(`xdg-open "${url}"`, reject, resolve);
-				break;
-
 			default:
-				reject(new Error(`Unspoorted platform: ${process.platform}.`));
+				exec(`xdg-open "${url}"`, reject, resolve);
 		}
 
 		return await promise;
@@ -63,10 +66,18 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 
 		respMessage.end();
 	} else if (resp instanceof Response) {
+		const signal = context.signal;
+
 		// Skip handling responses from `Response.redirect()`, which are immutable
-		if (!(resp.status > 299 && resp.status < 309 && resp.headers.has('Location'))) {
-			await Promise.allSettled(responsePostprocessors.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context }))));
-		}
+		const body = _isImmutableResponse(resp)
+			? resp.body
+			: await Promise.allSettled(responsePostprocessors
+				.map(postProcessor => Promise.try(() => postProcessor(resp, { request, context })))
+			).then(results => results
+				.filter(result => _isTransformStream(result.value))
+				.map(result => result.value)
+				.reduce((stream, pipe) => stream.pipeThrough(pipe, { signal }), resp.body)
+			);
 
 		if (! respMessage.headersSent) {
 			resp.headers.forEach((value, key) => {
@@ -91,35 +102,38 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 			}
 
 			respMessage.end();
-		} else if (respMessage.writable && resp.body instanceof ReadableStream) {
-			const reader = resp.body.getReader();
+		} else if (respMessage.writable && body instanceof ReadableStream && ! body.locked) {
+			const reader = body.getReader();
 			const cancel = reason => {
-				if (resp.body.locked) {
+				if (body.locked) {
 					reader.closed.then(() => {
-						resp.body.cancel(reason).catch(_noop);
+						body.cancel(reason).catch(_noop);
 					}).catch(_noop);
 
 					reader.releaseLock();
 				} else {
-					resp.body.cancel(reason).catch(_noop);
+					body.cancel(reason).catch(_noop);
 				}
 			};
 
 			try {
-				const signal = context.signal;
 				signal.addEventListener('abort', ({ target }) => cancel(target.reason), { once: true });
 
-				while (! signal.aborted && resp.body.locked) {
-					const { done, value } = await reader.read();
+				if (body.locked) {
+					while (! signal.aborted) {
+						const { done, value } = await reader.read();
 
-					if (done) {
-						reader.releaseLock();
-						respMessage.end();
-						resp.body.cancel('Done').catch(_noop);
-						break;
-					} else {
-						respMessage.write(value);
+						if (done) {
+							reader.releaseLock();
+							respMessage.end();
+							body.cancel('Done').catch(_noop);
+							break;
+						} else {
+							respMessage.write(value);
+						}
 					}
+				} else {
+					respMessage.end();
 				}
 			} catch(err) {
 				respMessage.destroy(err);
@@ -154,7 +168,7 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
  * @param {Function} [config.logger=console.error] A function to log messages.
  * @param {boolean} [config.open=false] Whether to open the application in the browser.
  * @param {Function[]} [config.requestPreprocessors] Functions run before request handling, capable of modifying context, logging, validating, or aborting requests.
- * @param {Function[]} [config.responsePostProcessors] Functions to modify a response after being created but before being sent.
+ * @param {Function[]} [config.responsePostprocessors] Functions to modify a response after being created but before being sent.
  * @param {AbortSignal} [config.signal] A signal to abort the server.
  * @returns {Promise<{server: Server<typeof IncomingMessage, typeof ServerResponse>, url: string, whenServerClosed: Promise<void>}>} An object containing the server instance, the URL it is listening on, and a promise that resolves when the server is closed.
  */
@@ -169,6 +183,7 @@ export async function serve({
 	requestPreprocessors = [],
 	responsePostprocessors = [],
 	signal: passedSignal,
+	timeout = 1000,
 } = {}) {
 	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
 	const url = new URL(pathname, `http://${hostname}:${port}`).href;
@@ -188,6 +203,15 @@ export async function serve({
 		const { resolve: resolveRequest, reject: rejectRequest, promise } = Promise.withResolvers();
 		let settled = false;
 
+		if (typeof timeout === 'number' && ! Number.isNaN(timeout) && request.body instanceof ReadableStream) {
+			const timeoutHandle = setTimeout(() => {
+				const err = new HTTPError('Connection timed out.', { status: 408 });
+				controller.abort(err);
+			}, timeout);
+
+			incomingMessage.once('end', () => clearTimeout(timeoutHandle));
+		}
+
 		const resolve = result => {
 			if (! settled) {
 				resolveRequest(result);
@@ -204,6 +228,7 @@ export async function serve({
 
 		const context = Object.freeze({
 			url,
+			searchParams: url.searchParams,
 			matches: pattern instanceof URLPattern ? pattern.exec(request.url) : null,
 			cookies, ip: incomingMessage.socket.remoteAddress,
 			controller,
@@ -219,7 +244,9 @@ export async function serve({
 			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(request, context)))
 				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
 
-			if (hookErrs.length === 1) {
+			if (signal.aborted) {
+				reject(signal.reason);
+			} else if (hookErrs.length === 1) {
 				reject(hookErrs[0]);
 			} else if (hookErrs.length !== 0) {
 				reject(new AggregateError(hookErrs));
@@ -228,7 +255,9 @@ export async function serve({
 				reject(controller.signal.reason);
 			} else if (! settled && pattern instanceof URLPattern) {
 				const moduleSpecifier = ROUTES.get(pattern);
-				const module = await import(moduleSpecifier).catch(err => err);
+				const module = moduleSpecifier instanceof Function
+					? { default: moduleSpecifier }
+					: await import(moduleSpecifier).catch(err => err);
 
 				if (module instanceof Error) {
 					reject(module);

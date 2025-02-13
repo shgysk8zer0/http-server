@@ -37,7 +37,7 @@ async function getConfig() {
 		pathname: getArg(['-a', '--path'], '/'),
 		open: hasArg(['-o', '--open']),
 		staticRoot: getArg(['-s', '--static'], '/'),
-		signal: hasArg(['-t', '--timeout']) ? AbortSignal.timeout(parseInt(getArg(['-t', '--timeout'], '0')) || 0) : undefined,
+		timeout: hasArg(['-t', '--timeout']) ? parseInt(getArg(['-t', '--timeout'], '0')) || 0 : undefined,
 		logger: hasArg(['-d', '--debug']) ? console.error : null,
 	};
 }

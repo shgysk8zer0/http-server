@@ -1,4 +1,7 @@
 const cache = new Map();
+const cached = Symbol('cached');
+
+const _getCachekey = req => `${req.method}:${req.url}`;
 
 /**
  *
@@ -9,15 +12,19 @@ const cache = new Map();
  * @param {Function} context.resolve
  */
 export function checkCacheItem(request, { signal, resolve }) {
+	const key = _getCachekey(request);
+
 	if (! (request instanceof Request)) {
 		throw new TypeError('Response must be a `Response` object.');
-	} else if (! signal.abort && cache.has(request.url)) {
-		const resp = cache.get(request.url);
+	} else if ((request.method === 'GET' || request.method === 'DELETE') &&! signal.aborted && request.cache !== 'no-cache' && cache.has(key)) {
+		const resp = cache.get(key);
+		const clone = resp.clone();
+		clone.headers.set('X-Last-Cached', new Date(resp[cached]).toISOString());
 
-		if (resp.bodyUsed) {
-			cache.delete(request.url);
+		if (clone.bodyUsed) {
+			cache.delete(key);
 		} else {
-			resolve(resp);
+			resolve(clone);
 		}
 	}
 }
@@ -33,8 +40,14 @@ export function setCacheItem(response, { request }) {
 		throw new TypeError('Response must be a `Response` object.');
 	} else if (! (request instanceof Request)) {
 		throw new TypeError('Request must be a `Request` object.');
-	} else if (! request.signal.aborted && response.ok && ! response.bodyUsed && response.status !== 206) {
-		cache.set(request.url, response.clone());
+	} else if (response.ok && ! response.hasOwnProperty(cached) && (request.method === 'GET' || request.method === 'DELETE') && ! request.signal.aborted && ! response.bodyUsed && response.status !== 206) {
+		const clone = Object.defineProperty(response.clone(), cached, {
+			value: Date.now(),
+			enumerable: false,
+		});
+
+		clone.headers.delete('Content-Encoding');
+		cache.set(_getCachekey(request), clone);
 	}
 }
 

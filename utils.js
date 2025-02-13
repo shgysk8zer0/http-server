@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
 export function resolveModulePath(path) {
-	if (path[0] === '.' || path[0] === '/') {
+	if (path instanceof URL || path instanceof Function) {
+		return path;
+	} else if (path[0] === '.' || path[0] === '/') {
 		return `file://${process.cwd()}/${path.replaceAll(/(\.+\/)/g, '')}`;
 	} else {
 		return import.meta.resolve(path);

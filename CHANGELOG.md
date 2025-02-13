@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.4] - 2025-02-12
+
+### Added
+- Add `createHandler()` for easier handler authoring
+- Add support for middleware transforming response bodies (via `TransformStream`)
+- Add support for request timeout in server config
+- Add support for `--open` for more platforms
+- Add `searchParams` to `context` passed to handlers
+- Add support for inline function support instead of only module imports in handling requests
+- Significantly expands testing
+
+### Fixed
+- Pass `signal` into `HTTPResponse` body parser
+
 ## [v1.0.3] - 2025-02-08
 
 ### Added

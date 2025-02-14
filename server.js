@@ -226,16 +226,25 @@ export async function serve({
 			}
 		};
 
-		const context = Object.freeze({
+		const matches = pattern instanceof URLPattern ? pattern.exec(request.url) : undefined;
+		const params = typeof matches === 'object'
+			? {
+				...matches.protocol.groups, ...matches.username.groups, ...matches.password.groups, ...matches.hostname.groups,
+				...matches.port.groups, ...matches.pathname.groups, ...matches.search.groups, ...matches.hash.groups,
+			} : {};
+		delete params['0'];
+
+		const context = {
 			url,
 			searchParams: url.searchParams,
-			matches: pattern instanceof URLPattern ? pattern.exec(request.url) : null,
+			matches: pattern instanceof URLPattern ? Object.freeze(matches) : null,
+			params: Object.freeze(params),
 			cookies, ip: incomingMessage.socket.remoteAddress,
 			controller,
 			signal: controller.signal,
 			resolve,
 			reject,
-		});
+		};
 
 		try {
 			incomingMessage.socket.once('close', () => controller.abort('Socket closed'));
@@ -243,6 +252,8 @@ export async function serve({
 
 			const hookErrs = await Promise.allSettled(requestPreprocessors.map(plugin => plugin(request, context)))
 				.then(results => results.filter(result => result.status === 'rejected').map(result => result.reason));
+
+			Object.freeze(context);
 
 			if (signal.aborted) {
 				reject(signal.reason);

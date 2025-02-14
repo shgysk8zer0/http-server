@@ -1,1 +1,1 @@
-export const useRequestId = req => req.headers.set('X-Request-ID', crypto.randomUUID());
+export const useRequestId = (req, context) => context.requestId = crypto.randomUUID();

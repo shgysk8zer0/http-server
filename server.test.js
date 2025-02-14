@@ -9,7 +9,7 @@ const controller = new AbortController();
 const signal = AbortSignal.any([timeout, controller.signal]);
 
 describe('Test HTTP server', { concurrency: true, signal }, async () => {
-	let port = 8000;
+	let port = 8001;
 	const staticRoot = '/static/';
 	const routes = {
 		'/': '@shgysk8zer0/http-server/api/home.js',

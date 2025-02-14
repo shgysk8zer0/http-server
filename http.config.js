@@ -3,6 +3,7 @@ import { useCSP } from '@shgysk8zer0/http-server/csp.js';
 import { useCORS } from '@shgysk8zer0/http-server/cors.js';
 import { checkCacheItem, setCacheItem } from '@shgysk8zer0/http-server/cache.js';
 import { useRequestId } from './req-id.js';
+import { useGeo } from './geo.js';
 import { useCompression } from './compression.js';
 import { HTTPError } from './HTTPError.js';
 
@@ -19,7 +20,7 @@ export default {
 		'/server': '@shgysk8zer0/http-server/api/server.js',
 		'/redirect': '@shgysk8zer0/http-server/api/redirect.js',
 		'/cache': '@shgysk8zer0/http-server/api/cache.js',
-		'/posts/:year(20\\d{2})/:month(0?\\d|[0-2])/:day(0?[1-9]|[12]\\d|3[01])/:post([a-z0-9\\-]+[a-z0-9])': (req, { matches }) => Response.json(matches),
+		'/posts/:year(20\\d{2})/:month(0?\\d|[0-2])/:day(0?[1-9]|[12]\\d|3[01])/:post([a-z0-9\\-]+[a-z0-9])': (req, { params }) => Response.json(params),
 		'/foo/:path([A-Za-z0-9]+)': (req, {
 			matches: {
 				pathname: {
@@ -49,6 +50,7 @@ export default {
 			console.log(`${req.url} visit count: ${visits.get(req.url)}`);
 		},
 		useRateLimit({ timeout: 60_000, maxRequests: 100 }),
+		useGeo(process.env.IPGEOLOCATION_KEY),
 		useRequestId,
 		checkCacheItem,
 		(req, { searchParams, controller }) => {

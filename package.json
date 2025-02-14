@@ -1,6 +1,6 @@
 {
   "name": "@shgysk8zer0/http-server",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A powerful but lightweight node server built using web standards",
   "keywords": [
     "server",
@@ -45,7 +45,7 @@
   },
   "private": false,
   "scripts": {
-    "start": "node ./cli.js -c ./http.config.js",
+    "start": "node --env-file-if-exists .env ./cli.js -c ./http.config.js",
     "test": "npm run lint:js && npm run run:tests",
     "preversion": "npm test && npm run build",
     "prepare": "npm test && npm run build",

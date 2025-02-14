@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.5] - 2025-02-13
+
+### Added
+- Add ability to update request context object
+- Add `params` object to context, built from groups in `matches` 
+
 ## [v1.0.4] - 2025-02-12
 
 ### Added

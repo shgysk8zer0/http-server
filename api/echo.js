@@ -6,7 +6,7 @@ import { Cookie } from '../Cookie.js';
  * @param {object} context
  * @returns {Response}
  */
-export default async function(req, { ip, cookies }) {
+export default async function(req, context) {
 	const headers = new Headers();
 	headers.append('X-Foo', 'bar');
 	headers.append('X-Foo', 'bazz');
@@ -14,7 +14,7 @@ export default async function(req, { ip, cookies }) {
 
 	headers.append('Set-Cookie', new Cookie({
 		name: 'client-ip',
-		value: ip,
+		value: context.ip,
 		secure: true,
 		httpOnly: true,
 		partitioned: true,
@@ -40,9 +40,8 @@ export default async function(req, { ip, cookies }) {
 		credentials: req.credentials,
 		cache: req.cache,
 		priority: req.priority,
-		cookies: cookies,
-		ip,
 		body: req.body instanceof ReadableStream ? await req.text() : null,
+		context,
 		signal: { aborted: req.signal.aborted, reason: req.signal.reason ?? null },
 	}, {
 		headers,

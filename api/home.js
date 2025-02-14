@@ -1,4 +1,4 @@
-export default (req, { ip, cookies }) => new Response(`<!DOCTYPE html>
+export default (req, context) => new Response(`<!DOCTYPE html>
 <html lang="en" dir="ltr">
 	<head>
 		<meta charset="utf-8" />
@@ -22,8 +22,7 @@ export default (req, { ip, cookies }) => new Response(`<!DOCTYPE html>
 			credentials: req.credentials,
 			cache: req.cache,
 			priority: req.priority,
-			cookies,
-			ip,
+			context,
 		}, null, 4)}</code></pre>
 		<video src="/video" preload="metadata" controls=""></video>
 	</body>

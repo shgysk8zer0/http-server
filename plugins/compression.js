@@ -1,6 +1,5 @@
 export function useCompression(format = 'deflate') {
 	return function(response, { request }) {
-
 		if (
 			response instanceof Response
 			&& ! response.headers.has('Content-Encoding')

@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createSecureServer } from 'node:http2';
 import { existsSync } from 'node:fs';
 import { HTTPRequest } from './HTTPRequest.js';
 import { RequestCookieMap } from './RequestCookieMap.js';
@@ -7,7 +8,35 @@ import { getFileURL, resolveStaticPath, respondWithFile, resolveModulePath } fro
 
 const _noop = () => null;
 
+const _hasKeys = ({ key, cert }) => key instanceof Blob && cert instanceof Blob && key.type === 'application/pkcs8' && cert.type === 'application/x-pem-file';
+
 const _isImmutableResponse = resp => resp.status > 299 && resp.status < 309 && resp.headers.has('Location');
+
+async function _importMiddleware(src, index, list) {
+	if (typeof src !== 'function') {
+		const handler = await import(resolveModulePath(src));
+
+		if (handler.default instanceof Function) {
+			list[index] = handler.default;
+		} else {
+			throw new TypeError(`No default export for ${src}.`);
+		}
+	}
+}
+
+const _createServer = async (callback, {
+	key,
+	cert,
+	allowHTTP1 = true,
+	ALPNProtocols = ['h2', 'http/1.1'],
+} = {}) => _hasKeys({ key, cert })
+	? createSecureServer({
+		key: await key.bytes(),
+		cert: await cert.bytes(),
+		allowHTTP1,
+		ALPNProtocols,
+	}, callback)
+	: createServer(callback);
 
 const _isTransformStream = (result) =>
 	result instanceof TransformStream
@@ -52,19 +81,21 @@ async function _open(url) {
  * @param {Request} [details.request]
  */
 async function _send(resp, respMessage, { responsePostprocessors = [], context = {}, request } = {}) {
+	const hasStream = respMessage.hasOwnProperty('stream');
+	const writeTarget = hasStream ? respMessage.stream : respMessage;
+
 	if (context.signal.aborted) {
 		if (! respMessage.headersSent) {
 			respMessage.setHeader('Content-Type', 'application/json');
 			respMessage.writeHead(408);
-
 		}
 
-		if (respMessage.writable) {
+		if (writeTarget.writable) {
 			const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
-			respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+			writeTarget.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
 		}
 
-		respMessage.end();
+		writeTarget.end();
 	} else if (resp instanceof Response) {
 		const signal = context.signal;
 
@@ -87,7 +118,12 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 			});
 
 			resp.headers.getSetCookie().forEach(cookie => respMessage.appendHeader('Set-Cookie', cookie));
-			respMessage.writeHead(resp.status === 0 ? 500 : resp.status, resp.statusText);
+
+			if (hasStream) {
+				respMessage.writeHead(resp.status === 0 ? 500 : resp.status, resp.statusText);
+			} else {
+				respMessage.writeHead(resp.status === 0 ? 500 : resp.status);
+			}
 		}
 
 		if (context.signal.aborted) {
@@ -96,13 +132,13 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 				respMessage.writeHead(408);
 			}
 
-			if (respMessage.writable) {
+			if (writeTarget.writable) {
 				const cause = context.signal.reason instanceof Error ? context.signal.reason : new Error(context.signal.reason);
-				respMessage.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
+				writeTarget.write(JSON.stringify(new HTTPError(cause.message, { status: 408, cause })));
 			}
 
-			respMessage.end();
-		} else if (respMessage.writable && body instanceof ReadableStream && ! body.locked) {
+			writeTarget.end();
+		} else if (writeTarget.writable && body instanceof ReadableStream && ! body.locked) {
 			const reader = body.getReader();
 			const cancel = reason => {
 				if (body.locked) {
@@ -125,22 +161,22 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
 
 						if (done) {
 							reader.releaseLock();
-							respMessage.end();
+							writeTarget.end();
 							body.cancel('Done').catch(_noop);
 							break;
 						} else {
-							respMessage.write(value);
+							writeTarget.write(value);
 						}
 					}
 				} else {
-					respMessage.end();
+					writeTarget.end();
 				}
 			} catch(err) {
-				respMessage.destroy(err);
+				writeTarget.destroy(err);
 				cancel(err);
 			}
 		} else {
-			respMessage.end();
+			writeTarget.end();
 		}
 
 	} else if (typeof resp === 'object') {
@@ -163,6 +199,8 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
  * @param {string} [config.hostname="localhost"] The hostname to listen on.
  * @param {string} [config.staticRoot="/"] The path to the directory containing static files.
  * @param {number} [config.port=8080] The port to listen on.
+ * @param {Blob & { type: "application/pkcs8" }} [config.key] The private key in PEM format (PKCS#8 encoded).
+ * @param {Blob & { type: "application/x-pem-file" }} [config.cert] The certificate in PEM format (X.509 encoded).
  * @param {string} [config.pathname="/"] The URL path to serve the application on.
  * @param {object} [config.routes={}] A map of URL patterns to route handlers.
  * @param {Function} [config.logger=console.error] A function to log messages.
@@ -170,12 +208,16 @@ async function _send(resp, respMessage, { responsePostprocessors = [], context =
  * @param {Function[]} [config.requestPreprocessors] Functions run before request handling, capable of modifying context, logging, validating, or aborting requests.
  * @param {Function[]} [config.responsePostprocessors] Functions to modify a response after being created but before being sent.
  * @param {AbortSignal} [config.signal] A signal to abort the server.
+ * @param {number} [config.timeout=1000] Max length to keep the incoming connection alive before aborting.
+ * @param {boolean} [config.allowHTTP1] Whether or not to revert to HTTP 1.1 if HTTP 2 is not supported by the client.
  * @returns {Promise<{server: Server<typeof IncomingMessage, typeof ServerResponse>, url: string, whenServerClosed: Promise<void>}>} An object containing the server instance, the URL it is listening on, and a promise that resolves when the server is closed.
  */
 export async function serve({
 	hostname = 'localhost',
 	staticRoot = '/',
 	port = 8080,
+	key,
+	cert,
 	pathname = '/',
 	routes = {},
 	logger = console.error,
@@ -184,12 +226,19 @@ export async function serve({
 	responsePostprocessors = [],
 	signal: passedSignal,
 	timeout = 1000,
+	allowHTTP1 = true,
 } = {}) {
 	const { promise: whenServerClosed, resolve: resolveClosed } = Promise.withResolvers();
-	const url = new URL(pathname, `http://${hostname}:${port}`).href;
+	const schema = _hasKeys({ key, cert }) ? 'https:' : 'http:';
+	const url = new URL(pathname, `${schema}//${hostname}:${port}`).href;
 	const ROUTES = new Map(Object.entries(routes).map(([pattern, module]) => [new URLPattern(pattern, url), resolveModulePath(module)]));
 
-	const server = createServer(async function(incomingMessage, serverResponse) {
+	await Promise.all([
+		Promise.all(requestPreprocessors.map(_importMiddleware)),
+		Promise.all(responsePostprocessors.map(_importMiddleware)),
+	]);
+
+	const server = await _createServer(async function(incomingMessage, serverResponse) {
 		const controller = new AbortController();
 		const signal = passedSignal instanceof AbortSignal
 			? AbortSignal.any([passedSignal, controller.signal])
@@ -320,7 +369,7 @@ export async function serve({
 					await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }).response, serverResponse, { responsePostprocessors, context });
 				}
 			});
-	});
+	}, { key, cert, allowHTTP1 });
 
 	server.listen(port, hostname);
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.2.0] - 2025-02-16
+
+### Added
+- Add HTTP2 & HTTPS support
+- Add example key + cert for demo/testing
+
+### Changed
+- Simplify handling of request bodies/streams
+
+### Removed
+- Do not publish example plugins/middleware on npm
+
 ## [v1.0.5] - 2025-02-13
 
 ### Added

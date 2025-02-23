@@ -1,6 +1,6 @@
 {
   "name": "@shgysk8zer0/http-server",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "A powerful but lightweight node server built using web standards",
   "keywords": [
     "server",
@@ -52,7 +52,7 @@
     "lint:js": "eslint .",
     "fix:js": "eslint . --fix",
     "build": "npm run build:js",
-    "run:tests": "node --test",
+    "run:tests": "node --env-file-if-exists .env --test",
     "clean": "rm -f ./*.cjs",
     "build:js": "npm run clean && rollup -c rollup.config.js",
     "create:lock": "npm i --package-lock-only --ignore-scripts --no-audit --no-fund",

@@ -1,4 +1,4 @@
-import { HTTPError } from './HTTPError.js';
+import { HTTPError } from '../HTTPError.js';
 
 /**
  *

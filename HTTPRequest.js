@@ -1,4 +1,4 @@
-import { HTTPError } from './HTTPError.js';
+// import { HTTPError } from './HTTPError.js';
 
 /**
  *
@@ -10,42 +10,13 @@ import { HTTPError } from './HTTPError.js';
 function _getBody(req, { signal } = {}) {
 	if (typeof req.headers['content-type'] !== 'string' || ['HEAD', 'DELETE', 'GET'].includes(req.method)) {
 		return null;
+	} else if (signal instanceof AbortSignal && signal.aborted) {
+		throw signal.reason;
+	} else if (typeof req.headers['content-encoding'] === 'string') {
+		return ReadableStream.from(req).pipeThrough(new DecompressionStream(req.headers['content-encoding']), { signal });
 	} else {
-
-		const stream = new ReadableStream({
-			start(controller) {
-				const abortCtrl = new AbortController();
-				const enqueue = controller.enqueue.bind(controller);
-				const close = () => {
-					controller.close();
-					abortCtrl.abort();
-				};
-
-				req.on('data', enqueue);
-				req.once('end', close);
-
-				if (signal instanceof AbortSignal) {
-					if (signal.aborted) {
-						controller.abort(signal.reason);
-					} else {
-						signal.addEventListener('abort', ({ target }) => {
-							req.off('data', enqueue);
-							req.off('end', close);
-							controller.error(target.reason);
-						}, { once: true, controller: abortCtrl });
-					}
-				}
-
-			}
-		});
-
-		if (typeof req.headers['content-encoding'] !== 'string') {
-			return stream;
-		} else if (['gzip', 'deflate'].includes(req.headers['content-encoding'])) {
-			return stream.pipeThrough(new DecompressionStream(req.headers['content-encoding']), { signal });
-		} else {
-			throw new HTTPError(`Unsupported Content-Encoding: ${req.headers['content-encoding']}.`, { status: 400 });
-		}
+		// Pipe through no-op transform stream for `signal` support
+		return ReadableStream.from(req).pipeThrough(new TransformStream({}), { signal });
 	}
 }
 
@@ -118,9 +89,19 @@ export class HTTPRequest extends Request {
 	 */
 	static createFromIncomingMessage(req, { signal } = {}) {
 		const body = _getBody(req, { signal });
+		const headers = Object.fromEntries(Array.from(
+			Object.keys(req.headers).filter(key => typeof key === 'string' && key[0] !== ':'),
+			key => [key, req.headers[key]],
+		));
 
-		return new HTTPRequest(URL.parse(req.url, 'http://' + req.headers.host)?.href, {
-			headers: req.headers,
+		if (typeof req.headers[':authority'] === 'string') {
+			headers.host = req.headers[':authority'];
+		}
+
+		const url = URL.parse(req.url, (req.headers[':scheme'] ?? 'http') + '://' + (req.headers[':authority'] ?? headers.host));
+
+		return new HTTPRequest(url?.href, {
+			headers: new Headers(headers),
 			body, // null or a readable stream
 			method: req.method,
 			referrer: typeof req.headers.referer === 'string' && URL.canParse(req.headers.referer) ? req.headers.referer : 'about:client',

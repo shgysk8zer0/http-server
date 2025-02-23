@@ -2,13 +2,21 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
+const BASE = `file://${process.cwd()}/`;
+
 export function resolveModulePath(path) {
 	if (path instanceof URL || path instanceof Function) {
 		return path;
 	} else if (path[0] === '.' || path[0] === '/') {
-		return `file://${process.cwd()}/${path.replaceAll(/(\.+\/)/g, '')}`;
+		return `${BASE}${path.replaceAll(/(\.+\/)/g, '')}`;
 	} else {
-		return import.meta.resolve(path);
+		// May require `--experimental-import-meta-resolve` to work as expected (resolve relative to project root and make use of `BASE`)
+
+		try {
+			return import.meta.resolve(path, BASE);
+		} catch(err) {
+			throw new Error(`Unable to import module ${path}. Try running again with \`node --experimental-import-meta-resolve\`.`, { cause: err });
+		}
 	}
 }
 

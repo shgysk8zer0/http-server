@@ -141,3 +141,41 @@ export default async function(req) {
   }
 }
 ```
+
+## Request & Response Middleware
+
+The server provides a powerful middleware system through `requestPreprocessors` and `responsePostprocessors`, offering
+deep control over the request/response lifecycle.
+
+### Request Preprocessors
+
+Request preprocessors run before route handling and can:
+
+- Filter/block requests
+- Modify the request object
+- Enhance the request context with additional data
+- Perform validation or authentication
+- Add logging or monitoring
+- Abort requests early
+- Skip request handling with aborting request or cached response
+- Mutate the `context` object with eg geoip data
+
+Each preprocessor receives the request object and a context object containing:
+
+- `ip` - Remote IP address
+- `url` - Complete request URL
+- `cookies` - Cookie management
+- `controller` - Request's abort controller
+- `signal` - Abort signal for the request
+
+### Response Postprocessors
+
+Run on `Response`s returned by handlers (or cache) that can:
+
+- Add headers to responses, such as CORS
+- Add responses to a cache
+- Pipe response streams through transform streams such as `CompressionStream` using `resp.body.pipeThrough()`
+
+Both types of middleware can be provided as direct functions, importable modules, or factory functions that return
+configurable handlers. The system's flexibility allows you to compose complex request/response pipelines while
+maintaining clean separation of concerns.

@@ -1,15 +1,16 @@
-import { useRateLimit } from '@shgysk8zer0/http-server/rate-limit.js';
-import { useCSP } from '@shgysk8zer0/http-server/csp.js';
-import { useCORS } from '@shgysk8zer0/http-server/cors.js';
-import { checkCacheItem, setCacheItem } from '@shgysk8zer0/http-server/cache.js';
-import { useRequestId } from './req-id.js';
-import { useGeo } from './geo.js';
-import { useCompression } from './compression.js';
+import { useRateLimit } from '@shgysk8zer0/http-server/plugins/rate-limit.js';
+import { useCSP } from '@shgysk8zer0/http-server/plugins/csp.js';
+import { useCORS } from '@shgysk8zer0/http-server/plugins/cors.js';
+import { checkCacheItem, setCacheItem } from '@shgysk8zer0/http-server/plugins/cache.js';
+import { useGeo } from './plugins/geo.js';
+import { useCompression } from './plugins/compression.js';
 import { HTTPError } from './HTTPError.js';
+import { key, cert } from './keys.js';
 
 const visits = new Map();
 
 export default {
+	key, cert,
 	staticRoot: '/static/',
 	routes: {
 		'/': '@shgysk8zer0/http-server/api/home.js',
@@ -34,7 +35,7 @@ export default {
 		}
 	},
 	staticPaths: ['/'],
-	port: 8000,
+	port: 4043,
 	open: true,
 	requestPreprocessors: [
 		(req) => {
@@ -51,13 +52,13 @@ export default {
 		},
 		useRateLimit({ timeout: 60_000, maxRequests: 100 }),
 		useGeo(process.env.IPGEOLOCATION_KEY),
-		useRequestId,
+		'@shgysk8zer0/http-server/plugins/req-id.js',
 		checkCacheItem,
 		(req, { searchParams, controller }) => {
 			if (searchParams.has('secure') && ! req.headers.has('Authorization')) {
 				controller.abort(new HTTPError('I\'m sorry, Dave, I\'m afraid I can\'t do that.', { status: 401 }));
 			}
-		}
+		},
 	],
 	responsePostprocessors: [
 		useCompression('deflate'),
@@ -70,5 +71,11 @@ export default {
 			'media-src': '\'self\'',
 			'connect-src': ['\'self\'', 'http://localhost:*/'],
 		}),
+		(response, { request }) => {
+			if (request.destination === 'document') {
+				response.headers.append('Link', '<https://unpkg.com/@shgysk8zer0/polyfills@0.4.9/browser.min.js>; rel="preload"; as="script"; fetchpriority="high"; crossorigin="anonymous"; referrerpolicy="no-referrer"');
+				response.headers.append('Link', '</js/index.js>; rel="preload"; as="script"; fetchpriority="high"; referrerpolicy="no-referrer"');
+			}
+		}
 	],
 };

@@ -1,7 +1,7 @@
 import { serve } from '@shgysk8zer0/http-server';
 import { test, describe } from 'node:test';
 import { deepStrictEqual, ok, strictEqual, fail } from 'node:assert';
-import { checkCacheItem, setCacheItem } from '@shgysk8zer0/http-server/cache.js';
+import { checkCacheItem, setCacheItem } from '@shgysk8zer0/http-server/plugins/cache.js';
 import net from 'node:net';
 
 const timeout = AbortSignal.timeout(10_000);

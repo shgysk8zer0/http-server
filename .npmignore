@@ -20,3 +20,6 @@ importmap.yaml
 *.bak
 *.env
 !*.map
+*.csr
+*.key
+*.crt

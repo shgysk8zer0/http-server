@@ -22,7 +22,7 @@ export default (req, context) => new Response(`<!DOCTYPE html>
 			credentials: req.credentials,
 			cache: req.cache,
 			priority: req.priority,
-			context,
+			context: { ip: context.ip, cookies: context.cookies, params: context.params },
 		}, null, 4)}</code></pre>
 		<video src="/video" preload="metadata" controls=""></video>
 	</body>

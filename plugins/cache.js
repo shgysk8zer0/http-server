@@ -16,7 +16,7 @@ export function checkCacheItem(request, { signal, resolve }) {
 
 	if (! (request instanceof Request)) {
 		throw new TypeError('Response must be a `Response` object.');
-	} else if ((request.method === 'GET' || request.method === 'DELETE') &&! signal.aborted && request.cache !== 'no-cache' && cache.has(key)) {
+	} else if ((request.method === 'GET' || request.method === 'DELETE') &&! signal.aborted && request.cache !== 'no-store' && cache.has(key)) {
 		const resp = cache.get(key);
 		const clone = resp.clone();
 		clone.headers.set('X-Last-Cached', new Date(resp[cached]).toISOString());
@@ -40,7 +40,7 @@ export function setCacheItem(response, { request }) {
 		throw new TypeError('Response must be a `Response` object.');
 	} else if (! (request instanceof Request)) {
 		throw new TypeError('Request must be a `Request` object.');
-	} else if (response.ok && ! response.hasOwnProperty(cached) && (request.method === 'GET' || request.method === 'DELETE') && ! request.signal.aborted && ! response.bodyUsed && response.status !== 206) {
+	} else if (response.ok && response.headers.get('Cache-Control') !== 'no-store' && ! response.hasOwnProperty(cached) && (request.method === 'GET' || request.method === 'DELETE') && ! request.signal.aborted && ! response.bodyUsed && response.status !== 206) {
 		const clone = Object.defineProperty(response.clone(), cached, {
 			value: Date.now(),
 			enumerable: false,
@@ -52,6 +52,8 @@ export function setCacheItem(response, { request }) {
 }
 
 export const getCacheSize = () => cache.size;
+
+export const listCache = () => Array.from(cache.keys());
 
 export const getCacheItem = key => cache.has(key) ? cache.get(key).clone() : null;
 

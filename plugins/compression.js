@@ -2,6 +2,7 @@ export function useCompression(format = 'deflate') {
 	return function(response, { request }) {
 		if (
 			response instanceof Response
+			&& response.body instanceof ReadableStream
 			&& ! response.headers.has('Content-Encoding')
 			&& response.headers.get('Content-Type').startsWith('text/')
 			&& request.headers.has('Accept-Encoding')

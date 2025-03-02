@@ -4,13 +4,15 @@ import { HTTPError } from '../HTTPError.js';
 
 const tasks = new Map();
 
+const headers = new Headers({ 'Cache-Control': 'no-store' });
+
 export default createHandler({
-	get(req, { searchParams }) {
-		if (searchParams.has('id')) {
-			const task = tasks.get(searchParams.get('id'));
+	get(req, { params }) {
+		if (typeof params.id === 'string') {
+			const task = tasks.get(params.id);
 
 			if (typeof task?.title !== 'string') {
-				throw new HTTPError('Task not found.', { status: 404 });
+				throw new HTTPError('Task not found.', { status: 404, headers });
 			} else {
 				return Response.json(task);
 			}
@@ -22,7 +24,7 @@ export default createHandler({
 		const task = await req.json();
 
 		if (typeof task.title !== 'string') {
-			throw new HTTPError('Task is missing required fields.', { status: 400 });
+			throw new HTTPError('Task is missing required fields.', { status: 400, headers });
 		} else {
 			const newTask = {
 				id: crypto.randomUUID(),
@@ -36,12 +38,12 @@ export default createHandler({
 
 			return Response.json(newTask, {
 				status: 201,
-				headers: { 'Location': new URL(`/tasks?id=${newTask.id}`, req.url) },
+				headers: { 'Location': new URL(`/tasks?/${newTask.id}`, req.url), 'Cache-Control': headers.get('Cache-Control') },
 			});
 		}
 	},
-	async patch(req, { searchParams }) {
-		const id = searchParams.get('id');
+	async patch(req, { params }) {
+		const id = params.id;
 
 		if (! (typeof id === 'string' && tasks.has(id))) {
 			throw new HTTPError('Task not found.', { status: 404 });
@@ -57,17 +59,17 @@ export default createHandler({
 
 			tasks.set(id, updatedTask);
 
-			return Response.json(updatedTask);
+			return Response.json(updatedTask, { headers });
 		}
 	},
-	delete(req, { searchParams }) {
-		const id = searchParams.get('id');
+	delete(req, { params }) {
+		const id = params.id;
 
 		if (! (typeof id === 'string' && tasks.has(id))) {
-			throw new HTTPError('Task not found.', { status: 404 });
+			throw new HTTPError('Task not found.', { status: 404, headers });
 		} else {
 			tasks.delete(id);
-			return new Response(null, { status: 204 });
+			return new Response(null, { status: 204, headers });
 		}
 	}
 });

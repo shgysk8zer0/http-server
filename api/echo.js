@@ -41,7 +41,7 @@ export default async function(req, context) {
 		cache: req.cache,
 		priority: req.priority,
 		body: req.body instanceof ReadableStream ? await req.text() : null,
-		context,
+		context: { matches: context.matches, cookies: context.cookies, ip: context.ip, params: context.params },
 		signal: { aborted: req.signal.aborted, reason: req.signal.reason ?? null },
 	}, {
 		headers,

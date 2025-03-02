@@ -14,22 +14,25 @@ export default {
 	staticRoot: '/static/',
 	routes: {
 		'/': '@shgysk8zer0/http-server/api/home.js',
+		'/socket': './api/socket.js',
 		'/favicon.svg': '@shgysk8zer0/http-server/api/favicon.js',
 		'/video': './api/video.js',
 		'/tasks': '@shgysk8zer0/http-server/api/tasks.js',
+		'/tasks/:id([a-z0-9\\-]{36})': '@shgysk8zer0/http-server/api/tasks.js',
 		'/echo': '@shgysk8zer0/http-server/api/echo.js',
 		'/server': '@shgysk8zer0/http-server/api/server.js',
 		'/redirect': '@shgysk8zer0/http-server/api/redirect.js',
 		'/cache': '@shgysk8zer0/http-server/api/cache.js',
-		'/posts/:year(20\\d{2})/:month(0?\\d|[0-2])/:day(0?[1-9]|[12]\\d|3[01])/:post([a-z0-9\\-]+[a-z0-9])': (req, { params }) => Response.json(params),
+		'/posts/:year(20\\d{2})/:month(0?\\d|[0-2])/:day(0?[1-9]|[12]\\d|3[01])/:slug([a-z0-9\\-]+[a-z0-9])': (req, { params }) => Response.json({
+			date: new Date(parseInt(params.year), parseInt(params.month) - 1, parseInt(params.day)).toISOString(),
+			slug: params.slug,
+			year: params.year,
+			month: params.month,
+			day: params.day,
+			url: req.url,
+		}),
 		'/foo/:path([A-Za-z0-9]+)': (req, {
-			matches: {
-				pathname: {
-					groups: {
-						path = '',
-					}
-				}
-			}
+			params: { path = '' }
 		}) => {
 			return Response.redirect(new URL(`/${path}`, req.url));
 		}

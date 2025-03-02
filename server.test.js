@@ -268,7 +268,7 @@ describe('Test HTTP server', { concurrency: true, signal }, async () => {
 
 	test('Check requests with large payloads', { signal }, async () => {
 		try {
-			const blob = new Blob([Uint8Array.from({ length: 1024 * 1024})], { type: 'application/octet-stream'});
+			const blob = new Blob([Uint8Array.from({ length: 1024 * 1024 })], { type: 'application/octet-stream'});
 			const { url, server } = await serve({
 				pathname: '/echo',
 				port: port++,

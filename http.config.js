@@ -42,14 +42,7 @@ export default {
 	open: true,
 	requestPreprocessors: [
 		(req) => {
-			visits.emplace(req.url, {
-				insert() {
-					return 1;
-				},
-				update(oldValue) {
-					return oldValue + 1;
-				}
-			});
+			visits.set(req.url, (visits.get(req.url) ?? 0) + 1);
 
 			console.log(`${req.url} visit count: ${visits.get(req.url)}`);
 		},

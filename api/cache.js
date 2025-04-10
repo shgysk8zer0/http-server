@@ -3,7 +3,7 @@ import { HTTPError } from '../HTTPError.js';
 
 const headers = { 'Cache-Control': 'no-store' };
 
-export default (req, { searchParams }) => {
+export default (req, { searchParams, url }) => {
 	switch(req.method) {
 		case 'GET': {
 			if (! searchParams.has('id')) {
@@ -26,4 +26,4 @@ export default (req, { searchParams }) => {
 				throw new HTTPError(`No item found with id ${searchParams.get('id')}`, { status: 404, headers });
 			}
 	}
-}
+};

@@ -13,17 +13,17 @@ export default (req, context) => new Response(`<!DOCTYPE html>
 	</head>
 	<body>
 		<pre><code>${JSON.stringify({
-			url: req.url,
-			method: req.method,
-			headers: Object.fromEntries(req.headers),
-			mode: req.mode,
-			destination: req.destination,
-			referrer: req.referrer,
-			credentials: req.credentials,
-			cache: req.cache,
-			priority: req.priority,
-			context: { ip: context.ip, cookies: context.cookies, params: context.params },
-		}, null, 4)}</code></pre>
+		url: req.url,
+		method: req.method,
+		headers: Object.fromEntries(req.headers),
+		mode: req.mode,
+		destination: req.destination,
+		referrer: req.referrer,
+		credentials: req.credentials,
+		cache: req.cache,
+		priority: req.priority,
+		context: { ip: context.ip, cookies: context.cookies, params: context.params },
+	}, null, 4)}</code></pre>
 		<video src="/video" preload="metadata" controls=""></video>
 	</body>
 </html>`, {

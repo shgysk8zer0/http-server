@@ -48,7 +48,7 @@ function generateWebSocketResponse(message) {
 	const responseFrame = Buffer.concat([frameHeader, mask, payload]);
 
 	return responseFrame;
-  }
+}
 
 /**
  *
@@ -60,9 +60,9 @@ export default async function(req, { socket }) {
 	socket.setKeepAlive(true);
 	socket.setNoDelay(true);
 	let count = 0;
-	const interval = setInterval(() => socket.write(generateWebSocketResponse(`tick`)), 1000);
+	const interval = setInterval(() => socket.write(generateWebSocketResponse('tick')), 1000);
 	socket.on('data', buffer => {
-		const fin = (buffer[0] & 0b10000000) !== 0; // FIN bit
+		// const fin = (buffer[0] & 0b10000000) !== 0; // FIN bit
 		const opcode = buffer[0] & 0b00001111; // Opcode
 		const masked = (buffer[1] & 0b10000000) !== 0;
 		let mask;

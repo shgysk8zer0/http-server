@@ -88,6 +88,6 @@
     "rollup": "^4.32.0"
   },
   "dependencies": {
-    "@shgysk8zer0/polyfills": "^0.4.8"
+    "@shgysk8zer0/polyfills": "^0.5.0"
   }
 }

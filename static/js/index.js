@@ -1,4 +1,3 @@
-/* eslint-env browser */
 /* global document */
 fetch('/tasks').then(resp => resp.json()).then(console.log).catch(console.error);
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.1.2] - 2026-04-01
+
+### Added
+- Add numerous more Content Types for static files by extension
+- Pass a `DisposableStack` to request handlers
+
+### Changed
+- Update to node 25.3.0
+- Update npm publishing
+
 ## [v1.1.1] - 2025-03-02
 
 ### Added

@@ -251,7 +251,11 @@ export async function serve({
 		* @param {import('node:http').ServerResponse} serverResponse - The HTTP response.
 		*/
 		async function(incomingMessage, serverResponse) {
-			const controller = new AbortController();
+			const stack = new DisposableStack();
+			const controller = stack.adopt(
+				new AbortController(),
+				controller => controller.abort(new DOMException('Stack disposed', 'AbortError'))
+			);
 			const signal = passedSignal instanceof AbortSignal
 				? AbortSignal.any([passedSignal, controller.signal])
 				: controller.signal;
@@ -304,6 +308,7 @@ export async function serve({
 				ip: incomingMessage.socket.remoteAddress,
 				controller,
 				signal: controller.signal,
+				stack,
 				socket: incomingMessage.socket,
 				resolve,
 				reject,
@@ -382,7 +387,7 @@ export async function serve({
 					} else {
 						await _send(new HTTPError('An unknown error occured', { cause: err, status: 500 }).response, serverResponse, { responsePostprocessors, context });
 					}
-				});
+				}).finally(() => stack.dispose());
 		},
 		{ key, cert, allowHTTP1 }
 	);

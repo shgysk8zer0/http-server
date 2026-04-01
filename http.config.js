@@ -6,6 +6,7 @@ import { useGeo } from './plugins/geo.js';
 import { useCompression } from './plugins/compression.js';
 import { HTTPError } from './HTTPError.js';
 import { key, cert } from './keys.js';
+import { importmap } from '@shgysk8zer0/importmap';
 
 const visits = new Map();
 
@@ -69,7 +70,7 @@ export default {
 		}),
 		(response, { request }) => {
 			if (request.destination === 'document') {
-				response.headers.append('Link', '<https://unpkg.com/@shgysk8zer0/polyfills@0.4.9/browser.min.js>; rel="preload"; as="script"; fetchpriority="high"; crossorigin="anonymous"; referrerpolicy="no-referrer"');
+				response.headers.append('Link', `<${importmap['@shgysk8zer0/polyfills']}>; rel="preload"; as="script"; fetchpriority="high"; crossorigin="anonymous"; referrerpolicy="no-referrer"`);
 				response.headers.append('Link', '</js/index.js>; rel="preload"; as="script"; fetchpriority="high"; referrerpolicy="no-referrer"');
 			}
 		}
